@@ -14,6 +14,8 @@
 namespace {
 const QColor kSteamAccent(0x66, 0xc0, 0xf4);
 const QColor kCs2Accent(0xe0, 0xa2, 0x3c);
+const QColor kLime(0xa3, 0xd4, 0x1f);
+const QColor kAccent(0xab, 0x46, 0xff);
 } // namespace
 
 MainWindow::MainWindow()
@@ -22,34 +24,36 @@ MainWindow::MainWindow()
     resize(720, 640);
     setMinimumSize(640, 560);
 
+    // Palette lifted from the in-game menu shell (Neverlose.cpp): near-black panels,
+    // hairline rgb(26,26,30) borders, lime accent, muted gray text.
     setStyleSheet(QStringLiteral(R"(
-        #Root { background:#0b0d10; }
-        #Card { background:#14171c; border:1px solid #232830; border-radius:14px; }
+        #Root { background:#0c0c0d; }
+        #Card { background:#101012; border:1px solid #1a1a1e; border-radius:14px; }
         #Header { color:#f3f5f7; font-size:19px; font-weight:800; letter-spacing:2px; background:transparent; }
-        #HeaderAccent { color:#e0a23c; font-size:19px; font-weight:300; letter-spacing:2px; background:transparent; }
-        #LogHeader { color:#5c6672; font-size:11px; font-weight:700; letter-spacing:2px; background:transparent; }
-        #RootPillOk { color:#46a758; background:rgba(70,167,88,0.12);
-            border:1px solid rgba(70,167,88,0.4); border-radius:10px; padding:3px 12px; font-weight:700; font-size:11px; }
+        #HeaderAccent { color:#ab46ff; font-size:19px; font-weight:300; letter-spacing:2px; background:transparent; }
+        #LogHeader { color:#565b63; font-size:11px; font-weight:700; letter-spacing:2px; background:transparent; }
+        #RootPillOk { color:#ab46ff; background:rgba(171,70,255,0.10);
+            border:1px solid rgba(171,70,255,0.45); border-radius:10px; padding:3px 12px; font-weight:700; font-size:11px; }
         #RootPillBad { color:#e5484d; background:rgba(229,72,77,0.12);
             border:1px solid rgba(229,72,77,0.4); border-radius:10px; padding:3px 12px; font-weight:700; font-size:11px; }
-        QPushButton { background:#1a1f26; color:#dfe4ea; border:1px solid #2a313b;
-            border-radius:9px; padding:9px 14px; font-weight:600; font-size:13px; }
-        QPushButton:hover { background:#20262e; border-color:#39414d; }
-        QPushButton:pressed { background:#171c22; }
-        QPushButton:disabled { color:#565e69; background:#14181d; border-color:#1f242c; }
+        QPushButton { background:#18181a; color:#dfe4ea; border:1px solid #26262a;
+            border-radius:6px; padding:9px 14px; font-weight:600; font-size:13px; }
+        QPushButton:hover { background:#202024; border-color:#ab46ff; color:#ab46ff; }
+        QPushButton:pressed { background:#141416; }
+        QPushButton:disabled { color:#565e69; background:#121214; border-color:#1c1c20; }
         QPushButton#SteamBtn { background:#1b2838; border-color:#2a4a66; color:#c7e1f8; }
-        QPushButton#SteamBtn:hover { background:#20304a; border-color:#3a6a94; }
+        QPushButton#SteamBtn:hover { background:#20304a; border-color:#66c0f4; color:#c7e1f8; }
         QPushButton#SteamBtn:disabled { background:#141a20; border-color:#1e2c38; color:#4e5a64; }
-        QPushButton#Cs2Btn { background:#2b2115; border-color:#5c4a22; color:#f2d9a6; }
-        QPushButton#Cs2Btn:hover { background:#382a18; border-color:#7d6630; }
-        QPushButton#Cs2Btn:disabled { background:#1a1712; border-color:#33291a; color:#5a5244; }
-        QComboBox { background:#1a1f26; color:#dfe4ea; border:1px solid #2a313b;
-            border-radius:9px; padding:6px 10px; font-size:12px; }
-        QComboBox:hover { border-color:#39414d; }
-        QComboBox QAbstractItemView { background:#14171c; color:#dfe4ea;
-            selection-background-color:#2a313b; border:1px solid #2a313b; }
-        QPlainTextEdit#Log { background:#0e1114; border:1px solid #20262e; border-radius:10px;
-            color:#aab4c0; font-family:'JetBrains Mono','DejaVu Sans Mono',monospace; font-size:12px; }
+        QPushButton#Cs2Btn { background:#18181a; border-color:#26262a; color:#f2d9a6; }
+        QPushButton#Cs2Btn:hover { background:#202024; border-color:#ab46ff; color:#f6efdd; }
+        QPushButton#Cs2Btn:disabled { background:#121214; border-color:#1c1c20; color:#5a5244; }
+        QComboBox { background:#18181a; color:#dfe4ea; border:1px solid #26262a;
+            border-radius:6px; padding:6px 10px; font-size:12px; }
+        QComboBox:hover { border-color:#3a3a40; }
+        QComboBox QAbstractItemView { background:#101012; color:#dfe4ea;
+            selection-background-color:#26262a; selection-color:#ab46ff; border:1px solid #26262a; }
+        QPlainTextEdit#Log { background:#0e0e10; border:1px solid #1a1a1e; border-radius:10px;
+            color:#aaadb8; font-family:'JetBrains Mono','DejaVu Sans Mono',monospace; font-size:12px; }
     )"));
 
     auto *central = new QWidget(this);
@@ -279,9 +283,9 @@ void MainWindow::log(const QString &text, Injector::Level level)
         return;
     }
 
-    QString color = QStringLiteral("#aab4c0");
+    QString color = QStringLiteral("#aaadb8");
     if (level == Injector::Level::Ok)
-        color = QStringLiteral("#6fd08a");
+        color = QStringLiteral("#ab46ff");
     else if (level == Injector::Level::Warn)
         color = QStringLiteral("#f0b429");
     else if (level == Injector::Level::Error)
@@ -289,7 +293,7 @@ void MainWindow::log(const QString &text, Injector::Level level)
 
     const QString stamp = QTime::currentTime().toString(QStringLiteral("HH:mm:ss"));
     m_logView->appendHtml(QStringLiteral(
-        "<span style='color:#566072;'>[%1]</span> <span style='color:%2;'>%3</span>")
+        "<span style='color:#565b63;'>[%1]</span> <span style='color:%2;'>%3</span>")
                               .arg(stamp, color, text.toHtmlEscaped()));
 }
 
