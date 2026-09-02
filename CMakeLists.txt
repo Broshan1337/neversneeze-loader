@@ -16,6 +16,11 @@ qt_add_executable(Loader
     src/MainWindow.cpp
 )
 
+qt_add_resources(Loader "assets"
+    PREFIX "/assets"
+    FILES assets/steam.png assets/cs2.png
+)
+
 target_include_directories(Loader PRIVATE src)
 target_link_libraries(Loader PRIVATE Qt6::Widgets)
 

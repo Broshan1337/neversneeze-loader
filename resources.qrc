@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/assets">
+        <file>assets/steam.png</file>
+        <file>assets/cs2.png</file>
+    </qresource>
+</RCC>

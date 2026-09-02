@@ -19,6 +19,14 @@ QColor statusColor(Icons::Status status)
     return QColor(0x2a, 0x2a, 0x2e);
 }
 
+QPainterPath roundedTile(int s, qreal inset)
+{
+    QPainterPath path;
+    path.addRoundedRect(QRectF(s * inset, s * inset, s * (1.0 - 2 * inset), s * (1.0 - 2 * inset)),
+                        s * 0.16, s * 0.16);
+    return path;
+}
+
 QPainterPath agentPath()
 {
     // Simplified CS2 key-art silhouette on a 100x100 canvas, agent facing right.
@@ -38,15 +46,31 @@ QPainterPath agentPath()
 
 QPixmap Icons::app(Kind kind, int size, const QColor &color)
 {
-    const int s = size * 2;
-    QPixmap pm(s, s);
+    // Real icons shipped from disk (embedded as resources); painted fallback if missing.
+    const QString asset = kind == Kind::Steam ? QStringLiteral(":/assets/steam.png")
+                                              : QStringLiteral(":/assets/cs2.png");
+    QPixmap pm(size * 2, size * 2);
     pm.fill(Qt::transparent);
 
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::SmoothPixmapTransform);
+
+    const int s = size * 2;
+    const QPainterPath tile = roundedTile(s, 0.14);
+
+    QPixmap src(asset);
+    if (!src.isNull()) {
+        // crop the source square to the rounded tile and scale it down smoothly
+        const QPixmap cropped = src.scaled(s, s, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        p.setClipPath(tile);
+        p.drawPixmap(0, 0, cropped);
+        p.setClipping(false);
+        return pm;
+    }
 
     if (kind == Kind::Steam) {
-        // Filled disc, glyph drawn comfortably inside (the old version filled the whole slot).
+        // Fallback: painted steam disc + piston glyph.
         QLinearGradient grad(0, 0, 0, s);
         grad.setColorAt(0.0, color.lighter(125));
         grad.setColorAt(1.0, color.darker(160));
@@ -54,41 +78,34 @@ QPixmap Icons::app(Kind kind, int size, const QColor &color)
         p.setBrush(grad);
         p.drawEllipse(QRectF(s * 0.14, s * 0.14, s * 0.72, s * 0.72));
 
-        p.setRenderHint(QPainter::Antialiasing);
         const QColor white(0xf3, 0xf7, 0xfb);
 
-        // piston arm: knob (top-right) -> ball (bottom-left, breaking the disc edge)
         QPen arm(white, s * 0.075, Qt::SolidLine, Qt::RoundCap);
         p.setPen(arm);
         p.drawLine(QPointF(s * 0.60, s * 0.42), QPointF(s * 0.26, s * 0.70));
 
         p.setPen(Qt::NoPen);
         p.setBrush(white);
-        p.drawEllipse(QPointF(s * 0.60, s * 0.40), s * 0.115, s * 0.115);   // knob disc
+        p.drawEllipse(QPointF(s * 0.60, s * 0.40), s * 0.115, s * 0.115);
         p.setBrush(QColor(0x1b, 0x28, 0x38));
-        p.drawEllipse(QPointF(s * 0.60, s * 0.40), s * 0.045, s * 0.045);   // knob hole
+        p.drawEllipse(QPointF(s * 0.60, s * 0.40), s * 0.045, s * 0.045);
         p.setBrush(white);
-        p.drawEllipse(QPointF(s * 0.26, s * 0.70), s * 0.075, s * 0.075);   // ball
+        p.drawEllipse(QPointF(s * 0.26, s * 0.70), s * 0.075, s * 0.075);
     } else {
-        // CS2 tile: dark navy rounded square + orange agent silhouette + white rifle.
+        // Fallback: painted CS tile (navy + orange agent silhouette + white rifle).
         QLinearGradient grad(0, 0, 0, s);
         grad.setColorAt(0.0, QColor(0x14, 0x3a, 0x66));
         grad.setColorAt(1.0, QColor(0x0c, 0x25, 0x45));
-        QPainterPath tile;
-        tile.addRoundedRect(QRectF(s * 0.14, s * 0.14, s * 0.72, s * 0.72), s * 0.14, s * 0.14);
         p.fillPath(tile, grad);
         p.setPen(QPen(QColor(0x1e, 0x4a, 0x80), s * 0.012));
         p.setBrush(Qt::NoBrush);
         p.drawPath(tile);
-
-        p.setRenderHint(QPainter::Antialiasing);
 
         QPen body(color, s * 0.085, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
         p.setPen(body);
         p.setBrush(color);
         p.drawPath(agentPath());
 
-        // white rifle, aimed right, with a stock and magazine
         QPen rifle(QColor(0xf2, 0xf4, 0xf7), s * 0.045, Qt::SolidLine, Qt::RoundCap);
         p.setPen(rifle);
         p.drawLine(QPointF(s * 0.50, s * 0.50), QPointF(s * 0.84, s * 0.43));
