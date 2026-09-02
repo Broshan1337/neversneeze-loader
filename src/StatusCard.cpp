@@ -3,9 +3,9 @@
 #include <QVBoxLayout>
 
 namespace {
-constexpr int kIconSize = 68;
+constexpr int kIconSize = 72;
 constexpr int kBadgeSize = 24;
-constexpr int kIconSlot = 78;
+constexpr int kIconSlot = 84;
 } // namespace
 
 StatusCard::StatusCard(Icons::Kind kind, const QString &title, const QColor &accent, QWidget *content, QWidget *parent)

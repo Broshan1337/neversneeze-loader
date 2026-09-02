@@ -23,7 +23,7 @@ QPainterPath roundedTile(int s, qreal inset)
 {
     QPainterPath path;
     path.addRoundedRect(QRectF(s * inset, s * inset, s * (1.0 - 2 * inset), s * (1.0 - 2 * inset)),
-                        s * 0.16, s * 0.16);
+                        s * 0.18, s * 0.18);
     return path;
 }
 
@@ -57,7 +57,7 @@ QPixmap Icons::app(Kind kind, int size, const QColor &color)
     p.setRenderHint(QPainter::SmoothPixmapTransform);
 
     const int s = size * 2;
-    const QPainterPath tile = roundedTile(s, 0.14);
+    const QPainterPath tile = roundedTile(s, 0.06);
 
     QPixmap src(asset);
     if (!src.isNull()) {
@@ -66,6 +66,7 @@ QPixmap Icons::app(Kind kind, int size, const QColor &color)
         p.setClipPath(tile);
         p.drawPixmap(0, 0, cropped);
         p.setClipping(false);
+        pm.setDevicePixelRatio(2.0);
         return pm;
     }
 
@@ -113,6 +114,7 @@ QPixmap Icons::app(Kind kind, int size, const QColor &color)
         p.drawLine(QPointF(s * 0.64, s * 0.47), QPointF(s * 0.62, s * 0.56));
     }
 
+    pm.setDevicePixelRatio(2.0);
     return pm;
 }
 
@@ -171,5 +173,6 @@ QPixmap Icons::badge(Status status, int size)
         break;
     }
 
+    pm.setDevicePixelRatio(2.0);
     return pm;
 }
