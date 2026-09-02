@@ -1,6 +1,6 @@
 <RCC>
     <qresource prefix="/assets">
-        <file>assets/steam.png</file>
-        <file>assets/cs2.png</file>
+        <file alias="steam.png">assets/steam.png</file>
+        <file alias="cs2.png">assets/cs2.png</file>
     </qresource>
 </RCC>
