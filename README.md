@@ -7,7 +7,7 @@ Qt6 GUI front-end for the injector flow that used to live in `inject.sh`.
 - **Steam card** - asks "Inject module into Steam?" (yes/no), then runs the same
   gdb + dlopen round as `inject.sh` against the running Steam process.
 - **CS2 card** - X while the Steam step is pending, `?` once it is decided,
-  checkmark once the cheat library (`libutil_helper.so`) is mapped. Release/Debug
+  checkmark once the cheat library (`libMangoHud.so`) is mapped. Release/Debug
   picker, re-injection guard, staleness warning, memfd injection with gdb fallback -
   same as the script.
 - **Log panel** - everything the old script printed, timestamped.
