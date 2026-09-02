@@ -7,6 +7,7 @@
 #include <QPushButton>
 #include <QTimer>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QLabel>
 
 class StatusCard;
@@ -22,12 +23,18 @@ private slots:
     void onLog(const QString &text, int level);
     void onSteamButton();
     void onCs2Button();
+    void onAutoToggled(bool on);
+    void onAutoSteamToggled(bool on);
 
 private:
+    enum class AutoState { Off, WaitSteam, WaitCs2, WaitCs2Ready, Done };
+
     bool resolveProjectRoot();
     void startBuildCheck();
     void updateStates();
     void log(const QString &text, Injector::Level level = Injector::Level::Info);
+    void autoTick();
+    void stopAuto(const QString &reason, Injector::Level level = Injector::Level::Warn);
 
     Injector m_injector;
     StatusCard *m_steamCard = nullptr;
@@ -35,6 +42,8 @@ private:
     QPushButton *m_steamBtn = nullptr;
     QPushButton *m_cs2Btn = nullptr;
     QComboBox *m_buildBox = nullptr;
+    QCheckBox *m_autoBox = nullptr;
+    QCheckBox *m_autoSteamBox = nullptr;
     QPlainTextEdit *m_logView = nullptr;
     QLabel *m_rootPill = nullptr;
     QTimer m_pollTimer;
@@ -51,4 +60,8 @@ private:
     bool m_cs2Busy = false;
     bool m_alreadyInjectedLogged = false;
     qint64 m_lastCs2Pid = 0;
+
+    AutoState m_autoState = AutoState::Off;
+    int m_autoSettle = 0;
+    QString m_lastMissing;
 };

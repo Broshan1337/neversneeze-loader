@@ -52,6 +52,14 @@ MainWindow::MainWindow()
         QComboBox:hover { border-color:#3a3a40; }
         QComboBox QAbstractItemView { background:#101012; color:#dfe4ea;
             selection-background-color:#26262a; selection-color:#ab46ff; border:1px solid #26262a; }
+        QCheckBox { color:#aaadb8; font-size:12px; spacing:7px; background:transparent; }
+        QCheckBox:hover { color:#dfe4ea; }
+        QCheckBox:disabled { color:#565e69; }
+        QCheckBox::indicator { width:15px; height:15px; border:1px solid #26262a;
+            border-radius:4px; background:#18181a; }
+        QCheckBox::indicator:hover { border-color:#ab46ff; }
+        QCheckBox::indicator:checked { background:#ab46ff; border-color:#ab46ff; }
+        QCheckBox::indicator:disabled { background:#121214; border-color:#1c1c20; }
         QPlainTextEdit#Log { background:#0e0e10; border:1px solid #1a1a1e; border-radius:10px;
             color:#aaadb8; font-family:'JetBrains Mono','DejaVu Sans Mono',monospace; font-size:12px; }
     )"));
@@ -101,6 +109,16 @@ MainWindow::MainWindow()
 
     rootLayout->addLayout(cards, 1);
 
+    auto *autoRow = new QHBoxLayout;
+    autoRow->setSpacing(20);
+    m_autoBox = new QCheckBox(QStringLiteral("Auto inject"), this);
+    m_autoSteamBox = new QCheckBox(QStringLiteral("Auto inject Steam"), this);
+    m_autoSteamBox->setEnabled(false);
+    autoRow->addWidget(m_autoBox);
+    autoRow->addWidget(m_autoSteamBox);
+    autoRow->addStretch();
+    rootLayout->addLayout(autoRow);
+
     auto *logHeader = new QLabel(QStringLiteral("LOG"), this);
     logHeader->setObjectName(QStringLiteral("LogHeader"));
     rootLayout->addWidget(logHeader);
@@ -130,16 +148,23 @@ MainWindow::MainWindow()
         m_steamBusy = false;
         m_steamInjected = ok;
         m_steamFailed = !ok;
+        if (!ok && m_autoState != AutoState::Off && m_autoSteamBox->isChecked())
+            log(QStringLiteral("[Auto] Steam injection failed - continuing with CS2 only"),
+                Injector::Level::Warn);
         updateStates();
     });
     connect(&m_injector, &Injector::cs2Finished, this, [this](bool ok) {
         m_cs2Busy = false;
         m_cs2Injected = ok;
         m_cs2Failed = !ok;
+        if (!ok && m_autoState != AutoState::Off)
+            stopAuto(QStringLiteral("injection failed"));
         updateStates();
     });
     connect(m_steamBtn, &QPushButton::clicked, this, &MainWindow::onSteamButton);
     connect(m_cs2Btn, &QPushButton::clicked, this, &MainWindow::onCs2Button);
+    connect(m_autoBox, &QCheckBox::toggled, this, &MainWindow::onAutoToggled);
+    connect(m_autoSteamBox, &QCheckBox::toggled, this, &MainWindow::onAutoSteamToggled);
 
     connect(&m_pollTimer, &QTimer::timeout, this, &MainWindow::poll);
     m_pollTimer.start(1000);
@@ -226,6 +251,141 @@ void MainWindow::poll()
     }
 
     updateStates();
+    autoTick();
+}
+
+void MainWindow::autoTick()
+{
+    if (m_autoState == AutoState::Off || m_autoState == AutoState::Done)
+        return;
+
+    switch (m_autoState) {
+    case AutoState::WaitSteam: {
+        if (m_steamInjected
+            || (m_steamPid && Injector::mapsContain(m_steamPid, QStringLiteral("libSteamModule.so")))) {
+            if (!m_steamInjected)
+                log(QStringLiteral("[Auto] Steam module already injected - skipping steam"),
+                    Injector::Level::Info);
+            m_autoState = AutoState::WaitCs2;
+            m_autoSettle = 0;
+            log(QStringLiteral("[Auto] Waiting for CS2..."));
+            return;
+        }
+        if (!m_steamPid) {
+            m_autoSettle = 0;
+            return;
+        }
+        if (++m_autoSettle >= 3) {
+            log(QStringLiteral("[Auto] Injecting Steam module (PID: %1)").arg(m_steamPid),
+                Injector::Level::Ok);
+            m_steamBusy = true;
+            m_steamDecided = true;
+            updateStates();
+            m_injector.injectSteam(m_steamPid);
+            m_autoState = AutoState::WaitCs2;
+            m_autoSettle = 0;
+            log(QStringLiteral("[Auto] Waiting for CS2..."));
+        }
+        return;
+    }
+    case AutoState::WaitCs2:
+        if (!m_cs2Pid)
+            return;
+        if (m_cs2Injected) {
+            m_autoState = AutoState::Done;
+            log(QStringLiteral("[Auto] CS2 already injected - nothing to do"), Injector::Level::Ok);
+            return;
+        }
+        m_autoState = AutoState::WaitCs2Ready;
+        m_autoSettle = 0;
+        m_lastMissing.clear();
+        log(QStringLiteral("[Auto] CS2 detected - waiting for the game to finish loading..."));
+        return;
+    case AutoState::WaitCs2Ready: {
+        if (!m_cs2Pid) {
+            m_autoState = AutoState::WaitCs2;
+            m_autoSettle = 0;
+            log(QStringLiteral("[Auto] CS2 disappeared - waiting for it to come back..."));
+            return;
+        }
+        if (m_cs2Injected) {
+            m_autoState = AutoState::Done;
+            log(QStringLiteral("[Auto] CS2 already injected - nothing to do"), Injector::Level::Ok);
+            return;
+        }
+        const QStringList missing = Injector::missingCs2Modules(m_cs2Pid);
+        if (!missing.isEmpty()) {
+            m_autoSettle = 0;
+            const QString signature = missing.join(QStringLiteral(", "));
+            if (signature != m_lastMissing) {
+                m_lastMissing = signature;
+                log(QStringLiteral("[Auto] waiting for modules: %1").arg(signature));
+            }
+            return;
+        }
+        if (++m_autoSettle >= 3) {
+            log(QStringLiteral("[Auto] CS2 fully loaded - injecting"), Injector::Level::Ok);
+            m_cs2Busy = true;
+            updateStates();
+            m_injector.injectCs2(m_cs2Pid, m_buildBox->currentData().toBool());
+        }
+        return;
+    }
+    default:
+        return;
+    }
+}
+
+void MainWindow::stopAuto(const QString &reason, Injector::Level level)
+{
+    log(QStringLiteral("[Auto] stopped: %1").arg(reason), level);
+    if (m_autoBox) {
+        m_autoBox->blockSignals(true);
+        m_autoBox->setChecked(false);
+        m_autoBox->blockSignals(false);
+    }
+    if (m_autoSteamBox) {
+        m_autoSteamBox->blockSignals(true);
+        m_autoSteamBox->setEnabled(false);
+        m_autoSteamBox->blockSignals(false);
+    }
+    m_autoState = AutoState::Off;
+}
+
+void MainWindow::onAutoToggled(bool on)
+{
+    if (on) {
+        m_autoSteamBox->setEnabled(true);
+        m_autoState = m_autoSteamBox->isChecked() ? AutoState::WaitSteam : AutoState::WaitCs2;
+        m_autoSettle = 0;
+        log(QStringLiteral("[Auto] enabled - %1")
+                .arg(m_autoState == AutoState::WaitSteam
+                         ? QStringLiteral("waiting for Steam...")
+                         : QStringLiteral("waiting for CS2...")),
+            Injector::Level::Ok);
+    } else {
+        const bool wasRunning = m_autoState != AutoState::Off && m_autoState != AutoState::Done;
+        m_autoState = AutoState::Off;
+        m_autoSteamBox->setEnabled(false);
+        if (wasRunning)
+            log(QStringLiteral("[Auto] disabled"));
+    }
+}
+
+void MainWindow::onAutoSteamToggled(bool on)
+{
+    if (m_autoState == AutoState::Off || m_autoState == AutoState::Done)
+        return;
+
+    if (on && m_autoState == AutoState::WaitCs2) {
+        m_autoState = AutoState::WaitSteam;
+        m_autoSettle = 0;
+        log(QStringLiteral("[Auto] waiting for Steam..."));
+    } else if (!on && m_autoState == AutoState::WaitSteam) {
+        m_autoState = AutoState::WaitCs2;
+        m_autoSettle = 0;
+        log(QStringLiteral("[Auto] skipping steam - waiting for CS2..."));
+    }
 }
 
 void MainWindow::updateStates()

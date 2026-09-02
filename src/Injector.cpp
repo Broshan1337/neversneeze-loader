@@ -87,6 +87,38 @@ bool Injector::isRoot()
     return geteuid() == 0;
 }
 
+bool Injector::mapsContain(qint64 pid, const QString &needle)
+{
+    QFile maps(QStringLiteral("/proc/%1/maps").arg(pid));
+    if (!maps.open(QIODevice::ReadOnly))
+        return false;
+    return QString::fromLocal8Bit(maps.readAll()).contains(needle);
+}
+
+QStringList Injector::missingCs2Modules(qint64 pid)
+{
+    static const QStringList required = {
+        QStringLiteral("libclient.so"),
+        QStringLiteral("libengine2.so"),
+        QStringLiteral("librendersystemvulkan.so"),
+        QStringLiteral("libpanorama.so"),
+        QStringLiteral("libscenesystem.so"),
+        QStringLiteral("libschemasystem.so"),
+    };
+
+    QFile maps(QStringLiteral("/proc/%1/maps").arg(pid));
+    const QString text = maps.open(QIODevice::ReadOnly)
+        ? QString::fromLocal8Bit(maps.readAll())
+        : QString();
+
+    QStringList missing;
+    for (const QString &module : required) {
+        if (!text.contains(module))
+            missing.append(module);
+    }
+    return missing;
+}
+
 void Injector::run(const QString &prog, const QStringList &args, DoneFn done, bool logOutput)
 {
     if (m_proc->state() != QProcess::NotRunning) {

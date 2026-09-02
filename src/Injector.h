@@ -27,6 +27,8 @@ public:
 
     static qint64 findPid(const QString &name);
     static bool isRoot();
+    static bool mapsContain(qint64 pid, const QString &needle);
+    static QStringList missingCs2Modules(qint64 pid);
 
     void checkBuild(const std::function<void(const BuildState &)> &done);
     void rebuild(const std::function<void(bool ok)> &done);
