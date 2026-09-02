@@ -115,6 +115,12 @@ MainWindow::MainWindow()
         log(QStringLiteral("Could not locate the Neversneeze project root (build/, build-steam/, Source/)."),
             Injector::Level::Error);
 
+    log(QStringLiteral("[Loader] %1")
+            .arg(QFile::exists(QStringLiteral(":/assets/steam.png"))
+                     ? QStringLiteral("embedded icons loaded")
+                     : QStringLiteral("embedded icons missing - painted fallback")),
+        QFile::exists(QStringLiteral(":/assets/steam.png")) ? Injector::Level::Ok : Injector::Level::Warn);
+
     m_rootPill->setText(Injector::isRoot() ? QStringLiteral("ROOT") : QStringLiteral("NO ROOT"));
     m_rootPill->setObjectName(Injector::isRoot() ? QStringLiteral("RootPillOk") : QStringLiteral("RootPillBad"));
     m_rootPill->setStyleSheet(m_rootPill->styleSheet());
