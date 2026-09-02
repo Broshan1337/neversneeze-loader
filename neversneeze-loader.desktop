@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Neversneeze Loader
+Comment=CS2 module injector UI
+Exec=./run.sh
+Terminal=false
+Categories=Development;

@@ -1,0 +1,54 @@
+#pragma once
+
+#include "Injector.h"
+
+#include <QMainWindow>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QTimer>
+#include <QComboBox>
+#include <QLabel>
+
+class StatusCard;
+
+class MainWindow : public QMainWindow
+{
+    Q_OBJECT
+public:
+    MainWindow();
+
+private slots:
+    void poll();
+    void onLog(const QString &text, int level);
+    void onSteamButton();
+    void onCs2Button();
+
+private:
+    bool resolveProjectRoot();
+    void startBuildCheck();
+    void updateStates();
+    void log(const QString &text, Injector::Level level = Injector::Level::Info);
+
+    Injector m_injector;
+    StatusCard *m_steamCard = nullptr;
+    StatusCard *m_cs2Card = nullptr;
+    QPushButton *m_steamBtn = nullptr;
+    QPushButton *m_cs2Btn = nullptr;
+    QComboBox *m_buildBox = nullptr;
+    QPlainTextEdit *m_logView = nullptr;
+    QLabel *m_rootPill = nullptr;
+    QTimer m_pollTimer;
+
+    qint64 m_steamPid = 0;
+    qint64 m_cs2Pid = 0;
+    bool m_steamDecided = false;
+    bool m_steamInjected = false;
+    bool m_steamSkipped = false;
+    bool m_steamFailed = false;
+    bool m_steamBusy = false;
+    bool m_cs2Injected = false;
+    bool m_cs2Failed = false;
+    bool m_cs2Busy = false;
+    bool m_alreadyInjectedLogged = false;
+    qint64 m_lastCs2Pid = 0;
+};
