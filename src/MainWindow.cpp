@@ -186,6 +186,7 @@ bool MainWindow::resolveProjectRoot()
     QDir dir(QApplication::applicationDirPath());
     for (int i = 0; i < 5; ++i) {
         if (QFileInfo::exists(dir.filePath(QStringLiteral("build/Source/libutil_helper.so")))
+            || QFileInfo::exists(dir.filePath(QStringLiteral("build/Source/libOsiris.so")))
             || QFileInfo::exists(dir.filePath(QStringLiteral("Source/CMakeLists.txt")))) {
             m_injector.setProjectRoot(dir.absolutePath());
             return true;
@@ -239,14 +240,21 @@ void MainWindow::poll()
 
     if (m_cs2Pid && !m_cs2Injected && !m_cs2Busy) {
         QFile maps(QStringLiteral("/proc/%1/maps").arg(m_cs2Pid));
-        if (maps.open(QIODevice::ReadOnly)
-            && QString::fromLocal8Bit(maps.readAll()).contains(QStringLiteral("libutil_helper.so"))) {
-            m_cs2Injected = true;
-            if (!m_alreadyInjectedLogged) {
-                m_alreadyInjectedLogged = true;
-                log(QStringLiteral("[CS2] libutil_helper.so is already mapped in CS2 (%1)").arg(m_cs2Pid),
-                    Injector::Level::Ok);
+        if (maps.open(QIODevice::ReadOnly)) {
+            const QString text = QString::fromLocal8Bit(maps.readAll());
+            const bool utilHelper = text.contains(QStringLiteral("libutil_helper.so"));
+            const bool oldLib = text.contains(QStringLiteral("libOsiris.so"));
+            if (utilHelper || oldLib) {
+                m_cs2Injected = true;
+                if (!m_alreadyInjectedLogged) {
+                    m_alreadyInjectedLogged = true;
+                    log(QStringLiteral("[CS2] cheat library is already mapped in CS2 (%1)")
+                            .arg(m_cs2Pid),
+                        Injector::Level::Ok);
+                }
             }
+        }
+    }
         }
     }
 

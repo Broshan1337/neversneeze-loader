@@ -248,12 +248,16 @@ void Injector::injectCs2(qint64 pid, bool debugBuild)
     }
 
     QFile maps(QStringLiteral("/proc/%1/maps").arg(pid));
-    if (maps.open(QIODevice::ReadOnly)
-        && QString::fromLocal8Bit(maps.readAll()).contains(QStringLiteral("libutil_helper.so"))) {
-        log(QStringLiteral("[CS2] WARNING: libutil_helper.so is already mapped in CS2 (%1)").arg(pid), Level::Warn);
-        log(QStringLiteral("[CS2] Unload first, or wait for deferred unmap to complete"), Level::Warn);
-        emit cs2Finished(false);
-        return;
+    if (maps.open(QIODevice::ReadOnly)) {
+        const QString text = QString::fromLocal8Bit(maps.readAll());
+        if (text.contains(QStringLiteral("libutil_helper.so"))
+            || text.contains(QStringLiteral("libOsiris.so"))) {
+            log(QStringLiteral("[CS2] WARNING: the cheat library is already mapped in CS2 (%1)").arg(pid),
+                Level::Warn);
+            log(QStringLiteral("[CS2] Unload first, or wait for deferred unmap to complete"), Level::Warn);
+            emit cs2Finished(false);
+            return;
+        }
     }
 
     run(QStringLiteral("/usr/bin/find"),
