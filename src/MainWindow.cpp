@@ -255,8 +255,6 @@ void MainWindow::poll()
             }
         }
     }
-        }
-    }
 
     updateStates();
     autoTick();
