@@ -185,7 +185,7 @@ bool MainWindow::resolveProjectRoot()
 {
     QDir dir(QApplication::applicationDirPath());
     for (int i = 0; i < 5; ++i) {
-        if (QFileInfo::exists(dir.filePath(QStringLiteral("build/Source/libOsiris.so")))
+        if (QFileInfo::exists(dir.filePath(QStringLiteral("build/Source/libutil_helper.so")))
             || QFileInfo::exists(dir.filePath(QStringLiteral("Source/CMakeLists.txt")))) {
             m_injector.setProjectRoot(dir.absolutePath());
             return true;
@@ -240,11 +240,11 @@ void MainWindow::poll()
     if (m_cs2Pid && !m_cs2Injected && !m_cs2Busy) {
         QFile maps(QStringLiteral("/proc/%1/maps").arg(m_cs2Pid));
         if (maps.open(QIODevice::ReadOnly)
-            && QString::fromLocal8Bit(maps.readAll()).contains(QStringLiteral("libOsiris.so"))) {
+            && QString::fromLocal8Bit(maps.readAll()).contains(QStringLiteral("libutil_helper.so"))) {
             m_cs2Injected = true;
             if (!m_alreadyInjectedLogged) {
                 m_alreadyInjectedLogged = true;
-                log(QStringLiteral("[CS2] libOsiris.so is already mapped in CS2 (%1)").arg(m_cs2Pid),
+                log(QStringLiteral("[CS2] libutil_helper.so is already mapped in CS2 (%1)").arg(m_cs2Pid),
                     Injector::Level::Ok);
             }
         }
@@ -418,7 +418,7 @@ void MainWindow::updateStates()
         m_cs2Card->setStatus(Icons::Status::Check);
     else if (m_cs2Failed)
         m_cs2Card->setStatus(Icons::Status::Cross);
-    else if (m_steamDecided)
+    else if (m_cs2Pid)
         m_cs2Card->setStatus(Icons::Status::Question);
     else
         m_cs2Card->setStatus(Icons::Status::Cross);
@@ -427,14 +427,12 @@ void MainWindow::updateStates()
         m_cs2Card->setSubtitle(QStringLiteral("Injected - Toggle menu: INSERT"));
     else if (m_cs2Busy)
         m_cs2Card->setSubtitle(QStringLiteral("Injecting..."));
-    else if (!m_steamDecided)
-        m_cs2Card->setSubtitle(QStringLiteral("Waiting for Steam step"));
     else if (m_cs2Pid)
         m_cs2Card->setSubtitle(QStringLiteral("Detected - PID %1").arg(m_cs2Pid));
     else
         m_cs2Card->setSubtitle(QStringLiteral("Waiting for CS2..."));
 
-    m_cs2Btn->setEnabled(m_steamDecided && m_cs2Pid && !m_cs2Busy && !m_cs2Injected);
+    m_cs2Btn->setEnabled(m_cs2Pid && !m_cs2Busy && !m_cs2Injected && !m_steamBusy);
 }
 
 void MainWindow::onLog(const QString &text, int level)

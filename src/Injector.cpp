@@ -18,8 +18,15 @@ Injector::Injector(QObject *parent)
         flushLines();
     });
     connect(m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
-        if (error == QProcess::FailedToStart)
+        if (error == QProcess::FailedToStart) {
             log(QStringLiteral("Error: failed to start '%1'").arg(m_proc->program()), Level::Error);
+            DoneFn done;
+            done.swap(m_done);
+            const QString out = QString::fromLocal8Bit(m_buf);
+            m_buf.clear();
+            if (done)
+                done(-1, out);
+        }
     });
     connect(m_proc, &QProcess::finished, this, [this](int exitCode, QProcess::ExitStatus) {
         m_buf += m_proc->readAll();
@@ -59,8 +66,8 @@ QString Injector::steamModule() const
 
 QString Injector::osirisLib(bool debug) const
 {
-    return m_root + (debug ? QStringLiteral("/build-dbg/Source/libOsiris.so")
-                           : QStringLiteral("/build/Source/libOsiris.so"));
+    return m_root + (debug ? QStringLiteral("/build-dbg/Source/libutil_helper.so")
+                           : QStringLiteral("/build/Source/libutil_helper.so"));
 }
 
 qint64 Injector::findPid(const QString &name)
@@ -137,7 +144,7 @@ void Injector::checkBuild(const std::function<void(const BuildState &)> &done)
     m_state.steamModuleExists = QFileInfo::exists(steamModule());
     m_state.osirisExists = QFileInfo::exists(osirisLib(false));
 
-    auto checkOsiris = [this, done] {
+    auto checkInjected = [this, done] {
         if (!m_state.osirisExists) {
             done(m_state);
             return;
@@ -153,15 +160,15 @@ void Injector::checkBuild(const std::function<void(const BuildState &)> &done)
     };
 
     if (!m_state.steamModuleExists) {
-        checkOsiris();
+        checkInjected();
         return;
     }
     run(QStringLiteral("/usr/bin/find"),
         {m_root + QStringLiteral("/Source/SteamModule"), QStringLiteral("-type"), QStringLiteral("f"),
          QStringLiteral("-newer"), steamModule(), QStringLiteral("-print"), QStringLiteral("-quit")},
-        [this, checkOsiris](int, const QString &out) {
+        [this, checkInjected](int, const QString &out) {
             m_state.steamStale = !out.trimmed().isEmpty();
-            checkOsiris();
+            checkInjected();
         },
         false);
 }
@@ -242,8 +249,8 @@ void Injector::injectCs2(qint64 pid, bool debugBuild)
 
     QFile maps(QStringLiteral("/proc/%1/maps").arg(pid));
     if (maps.open(QIODevice::ReadOnly)
-        && QString::fromLocal8Bit(maps.readAll()).contains(QStringLiteral("libOsiris.so"))) {
-        log(QStringLiteral("[CS2] WARNING: libOsiris.so is already mapped in CS2 (%1)").arg(pid), Level::Warn);
+        && QString::fromLocal8Bit(maps.readAll()).contains(QStringLiteral("libutil_helper.so"))) {
+        log(QStringLiteral("[CS2] WARNING: libutil_helper.so is already mapped in CS2 (%1)").arg(pid), Level::Warn);
         log(QStringLiteral("[CS2] Unload first, or wait for deferred unmap to complete"), Level::Warn);
         emit cs2Finished(false);
         return;
