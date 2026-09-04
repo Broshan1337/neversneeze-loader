@@ -892,7 +892,7 @@ void MainWindow::updateStates()
     m_cs2Card->setBusy(m_cs2Busy);
 
     if (m_cs2Injected)
-        m_cs2Card->setSubtitle(QStringLiteral("Injected - Toggle menu: INSERT"));
+        m_cs2Card->setSubtitle(QStringLiteral("Injected"));
     else if (m_cs2Busy)
         m_cs2Card->setSubtitle(QStringLiteral("Working..."));
     else if (m_cs2Pid)

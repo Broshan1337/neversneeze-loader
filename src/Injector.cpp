@@ -577,7 +577,6 @@ void Injector::finishCs2()
     log(QStringLiteral(""));
     log(QStringLiteral("=========================================="));
     log(QStringLiteral(" Injection complete!"), Level::Ok);
-    log(QStringLiteral(" Toggle menu: INSERT"), Level::Ok);
     log(QStringLiteral("=========================================="));
     emit cs2Finished(true);
 }
