@@ -23,7 +23,7 @@ QPainterPath roundedTile(int s, qreal inset)
 {
     QPainterPath path;
     path.addRoundedRect(QRectF(s * inset, s * inset, s * (1.0 - 2 * inset), s * (1.0 - 2 * inset)),
-                        s * 0.18, s * 0.18);
+                        s * 0.22, s * 0.22);
     return path;
 }
 
@@ -57,15 +57,21 @@ QPixmap Icons::app(Kind kind, int size, const QColor &color)
     p.setRenderHint(QPainter::SmoothPixmapTransform);
 
     const int s = size * 2;
-    const QPainterPath tile = roundedTile(s, 0.06);
+    // CS2's source art is an opaque square -> clip to a rounded tile with a hairline inset.
+    // Steam ships as a circle with transparent corners -> no clipping needed (clipping
+    // used to cut the piston arm and knob).
+    const QPainterPath tile = roundedTile(s, 0.02);
 
     QPixmap src(asset);
     if (!src.isNull()) {
-        // crop the source square to the rounded tile and scale it down smoothly
         const QPixmap cropped = src.scaled(s, s, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-        p.setClipPath(tile);
-        p.drawPixmap(0, 0, cropped);
-        p.setClipping(false);
+        if (kind == Kind::Steam) {
+            p.drawPixmap(0, 0, cropped);
+        } else {
+            p.setClipPath(tile);
+            p.drawPixmap(0, 0, cropped);
+            p.setClipping(false);
+        }
         pm.setDevicePixelRatio(2.0);
         return pm;
     }
