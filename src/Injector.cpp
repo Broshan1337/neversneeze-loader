@@ -368,8 +368,7 @@ void Injector::unloadCs2(qint64 pid)
         });
 }
 
-qint64 Injector::cpuJiffies(qint64 pid)
-{
+qint64 Injector::cpuJiffies(qint64 pid){
     QFile stat(QStringLiteral("/proc/%1/stat").arg(pid));
     if (!stat.open(QIODevice::ReadOnly))
         return -1;
@@ -388,6 +387,14 @@ qint64 Injector::cpuJiffies(qint64 pid)
     if (!okU || !okS)
         return -1;
     return utime + stime;
+}
+
+bool Injector::writePtraceScope(const QString &value)
+{
+    QFile proc(QStringLiteral("/proc/sys/kernel/yama/ptrace_scope"));
+    if (!proc.open(QIODevice::WriteOnly | QIODevice::Text))
+        return false;
+    return proc.write((value + QLatin1Char('\n')).toUtf8()) > 0;
 }
 
 Injector::CleanupReport Injector::auditArtifacts(qint64 cs2Pid, QStringList *logLines)

@@ -67,6 +67,8 @@ MainWindow::MainWindow()
         #VacBad { color:#e5484d; }
         #VacMuted { color:#565b63; }
         #StatsLabel { color:#565b63; font-size:11px; background:transparent; }
+        #VacPanel QComboBox { padding:3px 8px; font-size:11px; }
+        #VacPanel QCheckBox { font-size:11px; spacing:5px; }
         #AccountPill { color:#aaadb8; background:#18181a; border:1px solid #26262a;
             border-radius:10px; padding:3px 12px; font-weight:600; font-size:11px; }
         QComboBox { background:#18181a; color:#dfe4ea; border:1px solid #26262a;
@@ -171,6 +173,27 @@ MainWindow::MainWindow()
     vacLayout->addWidget(m_vacLog);
     vacLayout->addWidget(m_vacPtrace);
     vacLayout->addWidget(m_vacUid);
+    vacLayout->addStretch();
+
+    m_ptraceBox = new QComboBox(vacPanel);
+    m_ptraceBox->setToolTip(QStringLiteral(
+        "0: any same-uid process may attach\n"
+        "1: only descendants (root still attaches)\n"
+        "2: root only (CAP_SYS_PTRACE)\n"
+        "3: ptrace disabled - BREAKS INJECTION"));
+    m_ptraceBox->addItem(QStringLiteral("ptrace 0 · permissive"));
+    m_ptraceBox->addItem(QStringLiteral("ptrace 1 · restricted"));
+    m_ptraceBox->addItem(QStringLiteral("ptrace 2 · root only"));
+    m_ptraceBox->addItem(QStringLiteral("ptrace 3 · off"));
+    vacLayout->addWidget(m_ptraceBox);
+
+    m_ptracePersist = new QCheckBox(QStringLiteral("persist"), vacPanel);
+    m_ptracePersist->setToolTip(QStringLiteral(
+        "Write the scope to /etc/sysctl.d so it survives reboot"));
+    vacLayout->addWidget(m_ptracePersist);
+    connect(m_ptraceBox, &QComboBox::activated, this, &MainWindow::onPtraceChanged);
+    connect(m_ptracePersist, &QCheckBox::toggled, this, &MainWindow::onPtracePersistToggled);
+
     vacLayout->addStretch();
     m_cleanupBtn = new QPushButton(QStringLiteral("Cleanup"), vacPanel);
     m_cleanupBtn->setObjectName(QStringLiteral("CleanupBtn"));
@@ -400,12 +423,26 @@ void MainWindow::updateVacPanel()
                              .arg(status.guiLogSize / 1024), "VacOk");
     }
 
-    if (status.ptraceScope == QStringLiteral("0"))
-        setRow(m_vacPtrace, QStringLiteral("ptrace: unrestricted (0)"), "VacWarn");
-    else if (status.ptraceScope.isEmpty())
+    if (status.ptraceScope.isEmpty())
         setRow(m_vacPtrace, QStringLiteral("ptrace: n/a"), "VacMuted");
+    else if (status.ptraceScope == QStringLiteral("3"))
+        setRow(m_vacPtrace, QStringLiteral("ptrace: DISABLED - injection will fail"), "VacBad");
+    else if (status.ptraceScope == QStringLiteral("0"))
+        setRow(m_vacPtrace, QStringLiteral("ptrace: permissive"), "VacWarn");
     else
-        setRow(m_vacPtrace, QStringLiteral("ptrace: scope %1").arg(status.ptraceScope), "VacOk");
+        setRow(m_vacPtrace, QStringLiteral("ptrace: scope %1 (root ok)").arg(status.ptraceScope), "VacOk");
+
+    // keep the selector in sync with the live value
+    if (m_ptraceBox) {
+        bool ok = false;
+        const int scope = status.ptraceScope.toInt(&ok);
+        if (ok && scope >= 0 && scope <= 3 && m_ptraceBox->currentIndex() != scope) {
+            QSignalBlocker blocker(m_ptraceBox);
+            m_ptraceBox->setCurrentIndex(scope);
+        }
+        m_ptraceBox->setVisible(!status.ptraceScope.isEmpty());
+        m_ptracePersist->setVisible(!status.ptraceScope.isEmpty());
+    }
 
     if (status.cs2Uid < 0)
         setRow(m_vacUid, QStringLiteral("cs2: not running"), "VacMuted");
@@ -449,6 +486,63 @@ void MainWindow::onCleanupButton()
     else if (!report.mapsResidue.isEmpty())
         log(QStringLiteral("[Cleanup] residue still mapped - unload/restart CS2 to clear it"),
             Injector::Level::Error);
+}
+
+void MainWindow::onPtraceChanged(int index)
+{
+    const QString value = QString::number(index);
+
+    if (index == 3) {
+        const auto choice = QMessageBox::warning(this, QStringLiteral("Disable ptrace"),
+            QStringLiteral("Scope 3 disables ptrace system-wide - the loader, its memfd round and "
+                           "every gdb attach will fail until you revert.\n\nSet it anyway?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (choice != QMessageBox::Yes) {
+            QSignalBlocker blocker(m_ptraceBox);
+            m_ptraceBox->setCurrentIndex(Injector::readVacStatus().ptraceScope.toInt());
+            return;
+        }
+    }
+
+    if (!Injector::writePtraceScope(value)) {
+        log(QStringLiteral("[Status] could not write ptrace_scope (need root)"), Injector::Level::Error);
+    } else {
+        log(QStringLiteral("[Status] ptrace_scope set to %1").arg(value), Injector::Level::Ok);
+        if (index == 0)
+            log(QStringLiteral("[Status] scope 0: every same-uid process can attach to any other"),
+                Injector::Level::Warn);
+    }
+    updateVacPanel();
+}
+
+void MainWindow::onPtracePersistToggled(bool on)
+{
+    const QString confPath = QStringLiteral("/etc/sysctl.d/99-neversneeze-loader.conf");
+    if (!on) {
+        if (QFile::exists(confPath) && QFile::remove(confPath))
+            log(QStringLiteral("[Status] ptrace scope no longer persisted (file removed)"));
+        return;
+    }
+
+    const int scope = m_ptraceBox ? m_ptraceBox->currentIndex() : -1;
+    if (scope < 0 || scope > 3) {
+        m_ptracePersist->setChecked(false);
+        return;
+    }
+
+    QFile conf(confPath);
+    if (conf.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        conf.write(QStringLiteral("# managed by Neversneeze Loader\n"
+                                  "kernel.yama.ptrace_scope = %1\n")
+                       .arg(scope)
+                       .toUtf8());
+        log(QStringLiteral("[Status] ptrace scope %1 persisted to %2").arg(scope).arg(confPath),
+            Injector::Level::Ok);
+    } else {
+        log(QStringLiteral("[Status] could not write %1 (need root)").arg(confPath),
+            Injector::Level::Error);
+        m_ptracePersist->setChecked(false);
+    }
 }
 
 void MainWindow::startBuildCheck(){

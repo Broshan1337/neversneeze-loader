@@ -27,6 +27,8 @@ private slots:
     void onUnloadButton();
     void onLaunchCs2();
     void onCleanupButton();
+    void onPtraceChanged(int index);
+    void onPtracePersistToggled(bool on);
     void onAutoToggled(bool on);
     void onAutoSteamToggled(bool on);
 
@@ -60,6 +62,8 @@ protected:
     QLabel *m_vacLog = nullptr;
     QLabel *m_vacPtrace = nullptr;
     QLabel *m_vacUid = nullptr;
+    QComboBox *m_ptraceBox = nullptr;
+    QCheckBox *m_ptracePersist = nullptr;
     QLabel *m_statsLabel = nullptr;
     QComboBox *m_buildBox = nullptr;
     QCheckBox *m_autoBox = nullptr;
