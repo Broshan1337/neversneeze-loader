@@ -2,7 +2,9 @@
 
 #include <QApplication>
 #include <QColor>
+#include <QIcon>
 #include <QPalette>
+#include <QPixmap>
 #include <QStyleFactory>
 
 int main(int argc, char *argv[])
@@ -10,6 +12,10 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("NeversneezeLoader"));
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+
+    const QPixmap logo(QStringLiteral(":/assets/nslogo.png"));
+    if (!logo.isNull())
+        QApplication::setWindowIcon(QIcon(logo));
 
     QPalette palette;
     palette.setColor(QPalette::Window, QColor(0x0b, 0x0d, 0x10));

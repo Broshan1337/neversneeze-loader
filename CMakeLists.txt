@@ -19,7 +19,7 @@ qt_add_executable(Loader
 qt_add_resources(Loader "assets"
     PREFIX "/assets"
     BASE "assets"
-    FILES assets/steam.png assets/cs2.png assets/chevron.png
+    FILES assets/steam.png assets/cs2.png assets/chevron.png assets/nslogo.png
 )
 
 target_include_directories(Loader PRIVATE src)
