@@ -3,13 +3,18 @@
 #include "StatusCard.h"
 
 #include <QApplication>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QMessageBox>
+#include <QProcess>
+#include <QSettings>
 #include <QTime>
+#include <QUrl>
 #include <QVBoxLayout>
+#include <QPainter>
 
 namespace {
 const QColor kSteamAccent(0x66, 0xc0, 0xf4);
@@ -28,7 +33,7 @@ MainWindow::MainWindow()
     // hairline rgb(26,26,30) borders, lime accent, muted gray text.
     setStyleSheet(QStringLiteral(R"(
         #Root { background:#0c0c0d; }
-        #Card { background:#101012; border:1px solid #1a1a1e; border-radius:14px; }
+        #Card { background:#101012; border-radius:14px; }
         #Header { color:#f3f5f7; font-size:19px; font-weight:800; letter-spacing:2px; background:transparent; }
         #HeaderAccent { color:#ab46ff; font-size:19px; font-weight:300; letter-spacing:2px; background:transparent; }
         #LogHeader { color:#565b63; font-size:11px; font-weight:700; letter-spacing:2px; background:transparent; }
@@ -47,6 +52,9 @@ MainWindow::MainWindow()
         QPushButton#Cs2Btn { background:#18181a; border-color:#26262a; color:#f2d9a6; }
         QPushButton#Cs2Btn:hover { background:#202024; border-color:#ab46ff; color:#f6efdd; }
         QPushButton#Cs2Btn:disabled { background:#121214; border-color:#1c1c20; color:#5a5244; }
+        QPushButton#UnloadBtn { background:#1e1416; border-color:#3c2226; color:#e8b8bc; }
+        QPushButton#UnloadBtn:hover { background:#2a171b; border-color:#be3c42; color:#f2d3d5; }
+        QPushButton#UnloadBtn:disabled { background:#121214; border-color:#1c1c20; color:#5a5244; }
         QComboBox { background:#18181a; color:#dfe4ea; border:1px solid #26262a;
             border-radius:6px; padding:6px 10px; font-size:12px; }
         QComboBox:hover { border-color:#3a3a40; }
@@ -97,13 +105,18 @@ MainWindow::MainWindow()
     auto *cs2Layout = new QVBoxLayout(cs2Content);
     cs2Layout->setContentsMargins(0, 0, 0, 0);
     cs2Layout->setSpacing(8);
+    m_launchBtn = new QPushButton(QStringLiteral("Launch CS2"), cs2Content);
     m_buildBox = new QComboBox(cs2Content);
     m_buildBox->addItem(QStringLiteral("Release build"), false);
     m_buildBox->addItem(QStringLiteral("Debug build"), true);
     m_cs2Btn = new QPushButton(QStringLiteral("Inject into CS2"), cs2Content);
     m_cs2Btn->setObjectName(QStringLiteral("Cs2Btn"));
+    m_unloadBtn = new QPushButton(QStringLiteral("Unload from CS2"), cs2Content);
+    m_unloadBtn->setObjectName(QStringLiteral("UnloadBtn"));
+    cs2Layout->addWidget(m_launchBtn);
     cs2Layout->addWidget(m_buildBox);
     cs2Layout->addWidget(m_cs2Btn);
+    cs2Layout->addWidget(m_unloadBtn);
     m_cs2Card = new StatusCard(Icons::Kind::Cs2, QStringLiteral("COUNTER-STRIKE 2"), kCs2Accent, cs2Content, this);
     cards->addWidget(m_cs2Card, 1);
 
@@ -157,18 +170,44 @@ MainWindow::MainWindow()
         m_cs2Busy = false;
         m_cs2Injected = ok;
         m_cs2Failed = !ok;
-        if (!ok && m_autoState != AutoState::Off)
+        if (!ok && m_autoState != AutoState::Off) {
             stopAuto(QStringLiteral("injection failed"));
+        } else if (ok && m_autoState != AutoState::Off) {
+            m_autoState = AutoState::Watch;
+            log(QStringLiteral("[Auto] injected - watching for CS2 restarts..."), Injector::Level::Ok);
+        }
         updateStates();
     });
     connect(m_steamBtn, &QPushButton::clicked, this, &MainWindow::onSteamButton);
     connect(m_cs2Btn, &QPushButton::clicked, this, &MainWindow::onCs2Button);
+    connect(m_unloadBtn, &QPushButton::clicked, this, &MainWindow::onUnloadButton);
+    connect(m_launchBtn, &QPushButton::clicked, this, &MainWindow::onLaunchCs2);
     connect(m_autoBox, &QCheckBox::toggled, this, &MainWindow::onAutoToggled);
     connect(m_autoSteamBox, &QCheckBox::toggled, this, &MainWindow::onAutoSteamToggled);
 
+    connect(&m_injector, &Injector::unloadFinished, this, [this](bool ok) {
+        m_cs2Busy = false;
+        if (ok) {
+            m_cs2Injected = false;
+            m_cs2Failed = false;
+        }
+        updateStates();
+    });
+
     connect(&m_pollTimer, &QTimer::timeout, this, &MainWindow::poll);
+    loadSettings();
     m_pollTimer.start(1000);
     poll();
+
+    if (m_autoBox->isChecked()) {
+        m_autoState = m_autoSteamBox->isChecked() ? AutoState::WaitSteam : AutoState::WaitCs2;
+        m_autoSettle = 0;
+        log(QStringLiteral("[Auto] enabled - %1")
+                .arg(m_autoState == AutoState::WaitSteam
+                         ? QStringLiteral("waiting for Steam...")
+                         : QStringLiteral("waiting for CS2...")),
+            Injector::Level::Ok);
+    }
 
     if (Injector::isRoot()) {
         log(QStringLiteral("=========================================="));
@@ -182,8 +221,7 @@ MainWindow::MainWindow()
 }
 
 bool MainWindow::resolveProjectRoot()
-{
-    QDir dir(QApplication::applicationDirPath());
+{    QDir dir(QApplication::applicationDirPath());
     for (int i = 0; i < 5; ++i) {
         if (QFileInfo::exists(dir.filePath(QStringLiteral("build/Source/libMangoHud.so")))
             || QFileInfo::exists(dir.filePath(QStringLiteral("build/Source/libOsiris.so")))
@@ -195,6 +233,33 @@ bool MainWindow::resolveProjectRoot()
             break;
     }
     return false;
+}
+
+void MainWindow::loadSettings()
+{
+    QSettings settings(QStringLiteral("Neversneeze"), QStringLiteral("Loader"));
+    const bool autoInject = settings.value(QStringLiteral("autoInject"), false).toBool();
+    const bool autoSteam = settings.value(QStringLiteral("autoInjectSteam"), false).toBool();
+    const bool debug = settings.value(QStringLiteral("debugBuild"), false).toBool();
+
+    m_buildBox->setCurrentIndex(debug ? 1 : 0);
+    m_autoBox->blockSignals(true);
+    m_autoBox->setChecked(autoInject);
+    m_autoSteamBox->setEnabled(autoInject);
+    m_autoSteamBox->blockSignals(true);
+    m_autoSteamBox->setChecked(autoSteam);
+    m_autoSteamBox->blockSignals(false);
+    m_autoBox->blockSignals(false);
+    if (!autoInject)
+        m_autoSteamBox->setEnabled(false);
+}
+
+void MainWindow::saveSettings()
+{
+    QSettings settings(QStringLiteral("Neversneeze"), QStringLiteral("Loader"));
+    settings.setValue(QStringLiteral("autoInject"), m_autoBox->isChecked());
+    settings.setValue(QStringLiteral("autoInjectSteam"), m_autoSteamBox->isChecked());
+    settings.setValue(QStringLiteral("debugBuild"), m_buildBox->currentIndex() == 1);
 }
 
 void MainWindow::startBuildCheck()
@@ -238,14 +303,14 @@ void MainWindow::poll()
     }
     m_lastCs2Pid = m_cs2Pid;
 
-    if (m_cs2Pid && !m_cs2Injected && !m_cs2Busy) {
+    if (m_cs2Pid && !m_cs2Busy) {
         QFile maps(QStringLiteral("/proc/%1/maps").arg(m_cs2Pid));
         if (maps.open(QIODevice::ReadOnly)) {
             const QString text = QString::fromLocal8Bit(maps.readAll());
             const bool mangoHud = text.contains(QStringLiteral("libMangoHud.so"));
             const bool oldLib = text.contains(QStringLiteral("libutil_helper.so"))
                 || text.contains(QStringLiteral("libOsiris.so"));
-            if (mangoHud || oldLib) {
+            if ((mangoHud || oldLib) && !m_cs2Injected) {
                 m_cs2Injected = true;
                 if (!m_alreadyInjectedLogged) {
                     m_alreadyInjectedLogged = true;
@@ -253,6 +318,13 @@ void MainWindow::poll()
                             .arg(m_cs2Pid),
                         Injector::Level::Ok);
                 }
+                updateStates();
+            } else if (!mangoHud && !oldLib && m_cs2Injected) {
+                // library unmapped: in-game unload or deferred unmap completed
+                m_cs2Injected = false;
+                m_alreadyInjectedLogged = false;
+                log(QStringLiteral("[CS2] cheat library unmapped from CS2 - ready to inject again"),
+                    Injector::Level::Info);
             }
         }
     }
@@ -299,14 +371,30 @@ void MainWindow::autoTick()
         if (!m_cs2Pid)
             return;
         if (m_cs2Injected) {
-            m_autoState = AutoState::Done;
-            log(QStringLiteral("[Auto] CS2 already injected - nothing to do"), Injector::Level::Ok);
+            m_autoState = AutoState::Watch;
+            log(QStringLiteral("[Auto] CS2 already injected - watching for restarts..."),
+                Injector::Level::Ok);
             return;
         }
         m_autoState = AutoState::WaitCs2Ready;
         m_autoSettle = 0;
         m_lastMissing.clear();
         log(QStringLiteral("[Auto] CS2 detected - waiting for the game to finish loading..."));
+        return;
+    case AutoState::Watch:
+        if (!m_cs2Pid) {
+            m_autoState = AutoState::WaitCs2;
+            m_autoSettle = 0;
+            log(QStringLiteral("[Auto] CS2 closed - waiting for it to come back..."));
+            return;
+        }
+        if (!m_cs2Injected) {
+            m_autoState = AutoState::WaitCs2Ready;
+            m_autoSettle = 0;
+            m_lastMissing.clear();
+            log(QStringLiteral("[Auto] CS2 restarted - waiting for the game to finish loading..."));
+            return;
+        }
         return;
     case AutoState::WaitCs2Ready: {
         if (!m_cs2Pid) {
@@ -316,8 +404,7 @@ void MainWindow::autoTick()
             return;
         }
         if (m_cs2Injected) {
-            m_autoState = AutoState::Done;
-            log(QStringLiteral("[Auto] CS2 already injected - nothing to do"), Injector::Level::Ok);
+            m_autoState = AutoState::Watch;
             return;
         }
         const QStringList missing = Injector::missingCs2Modules(m_cs2Pid);
@@ -361,6 +448,7 @@ void MainWindow::stopAuto(const QString &reason, Injector::Level level)
 
 void MainWindow::onAutoToggled(bool on)
 {
+    saveSettings();
     if (on) {
         m_autoSteamBox->setEnabled(true);
         m_autoState = m_autoSteamBox->isChecked() ? AutoState::WaitSteam : AutoState::WaitCs2;
@@ -381,6 +469,7 @@ void MainWindow::onAutoToggled(bool on)
 
 void MainWindow::onAutoSteamToggled(bool on)
 {
+    saveSettings();
     if (m_autoState == AutoState::Off || m_autoState == AutoState::Done)
         return;
 
@@ -397,6 +486,7 @@ void MainWindow::onAutoSteamToggled(bool on)
 
 void MainWindow::updateStates()
 {
+    m_steamCard->setBusy(m_steamBusy);
     if (m_steamInjected)
         m_steamCard->setStatus(Icons::Status::Check);
     else if (m_steamSkipped)
@@ -429,17 +519,20 @@ void MainWindow::updateStates()
         m_cs2Card->setStatus(Icons::Status::Question);
     else
         m_cs2Card->setStatus(Icons::Status::Cross);
+    m_cs2Card->setBusy(m_cs2Busy);
 
     if (m_cs2Injected)
         m_cs2Card->setSubtitle(QStringLiteral("Injected - Toggle menu: INSERT"));
     else if (m_cs2Busy)
-        m_cs2Card->setSubtitle(QStringLiteral("Injecting..."));
+        m_cs2Card->setSubtitle(QStringLiteral("Working..."));
     else if (m_cs2Pid)
         m_cs2Card->setSubtitle(QStringLiteral("Detected - PID %1").arg(m_cs2Pid));
     else
         m_cs2Card->setSubtitle(QStringLiteral("Waiting for CS2..."));
 
     m_cs2Btn->setEnabled(m_cs2Pid && !m_cs2Busy && !m_cs2Injected && !m_steamBusy);
+    m_unloadBtn->setEnabled(m_cs2Pid && !m_cs2Busy && m_cs2Injected);
+    m_launchBtn->setEnabled(true);
 }
 
 void MainWindow::onLog(const QString &text, int level)
@@ -503,7 +596,52 @@ void MainWindow::onCs2Button()
         return;
 
     const bool debug = m_buildBox->currentData().toBool();
+    saveSettings();
     m_cs2Busy = true;
     updateStates();
     m_injector.injectCs2(m_cs2Pid, debug);
+}
+
+void MainWindow::onUnloadButton()
+{
+    if (!m_cs2Pid || m_cs2Busy)
+        return;
+
+    if (m_autoState != AutoState::Off && m_autoState != AutoState::Done) {
+        m_autoBox->setChecked(false);
+        stopAuto(QStringLiteral("manual unload"), Injector::Level::Info);
+    }
+
+    m_cs2Busy = true;
+    updateStates();
+    m_injector.unloadCs2(m_cs2Pid);
+}
+
+void MainWindow::onLaunchCs2()
+{
+    log(QStringLiteral("[CS2] Launching CS2 via Steam..."));
+    QProcess::startDetached(QStringLiteral("xdg-open"), {QStringLiteral("steam://run/730")});
+}
+
+void MainWindow::paintEvent(QPaintEvent *event)
+{
+    QMainWindow::paintEvent(event);
+
+    // violet glow band hugging the panel edge, echoing the in-game menu shell glow
+    const QRectF panel = centralWidget() ? centralWidget()->geometry() : QRectF();
+    if (panel.isEmpty())
+        return;
+
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const QColor glow(0xab, 0x46, 0xff);
+    const int extent = 9;
+    for (int i = extent; i >= 1; --i) {
+        QColor c = glow;
+        c.setAlpha(int(14 * (1.0 - qreal(i) / (extent + 1))));
+        p.setPen(QPen(c, 2.2));
+        p.setBrush(Qt::NoBrush);
+        const qreal grow = i * 1.1;
+        p.drawRoundedRect(panel.adjusted(grow, grow, -grow, -grow), 14 + i, 14 + i);
+    }
 }

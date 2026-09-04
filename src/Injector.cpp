@@ -306,6 +306,65 @@ void Injector::injectCs2(qint64 pid, bool debugBuild)
         false);
 }
 
+void Injector::unloadCs2(qint64 pid)
+{
+    // Find the actual mapped path of the cheat library (memfd injections map
+    // /proc/<pid>/fd/N style paths, not the build path), then dlopen it with
+    // RTLD_NOLOAD to get its handle and dlclose it repeatedly to drop every
+    // reference so the module's deferred-unmap logic can complete.
+    QFile maps(QStringLiteral("/proc/%1/maps").arg(pid));
+    QString libPath;
+    if (maps.open(QIODevice::ReadOnly)) {
+        const QStringList lines = QString::fromLocal8Bit(maps.readAll()).split(QLatin1Char('\n'));
+        for (const QString &line : lines) {
+            if (!line.contains(QStringLiteral("libMangoHud.so"))
+                && !line.contains(QStringLiteral("libutil_helper.so"))
+                && !line.contains(QStringLiteral("libOsiris.so")))
+                continue;
+            const int spacePos = line.lastIndexOf(QLatin1Char(' '));
+            if (spacePos < 0)
+                continue;
+            libPath = line.mid(spacePos + 1).trimmed();
+            if (libPath.startsWith(QLatin1Char('/')))
+                break;
+            libPath.clear();
+        }
+    }
+
+    if (libPath.isEmpty()) {
+        log(QStringLiteral("[CS2] Library is not mapped in CS2 (%1) - nothing to unload").arg(pid),
+            Level::Warn);
+        emit unloadFinished(false);
+        return;
+    }
+
+    log(QStringLiteral("[CS2] Unloading %1 from CS2 (%2)...").arg(libPath).arg(pid));
+    run(QStringLiteral("gdb"),
+        {QStringLiteral("-p"), QString::number(pid), QStringLiteral("-n"), QStringLiteral("-q"),
+         QStringLiteral("-batch"),
+         QStringLiteral("-ex"), QStringLiteral("handle SIGSTOP nostop pass noprint SIGCONT nostop pass noprint"),
+         QStringLiteral("-ex"),
+         QStringLiteral("call ((void*(*)(const char*, int)) dlopen)(\"%1\", 6)").arg(libPath),
+         QStringLiteral("-ex"), QStringLiteral("call ((int(*)(void*)) dlclose)($1)"),
+         QStringLiteral("-ex"), QStringLiteral("call ((int(*)(void*)) dlclose)($1)"),
+         QStringLiteral("-ex"), QStringLiteral("call ((int(*)(void*)) dlclose)($1)"),
+         QStringLiteral("-ex"), QStringLiteral("call ((char*(*)(void)) dlerror)()"),
+         QStringLiteral("-ex"), QStringLiteral("detach"), QStringLiteral("-ex"), QStringLiteral("quit")},
+        [this, pid](int exitCode, const QString &) {
+            if (exitCode == 0 && !mapsContain(pid, QStringLiteral("libMangoHud.so"))
+                && !mapsContain(pid, QStringLiteral("libutil_helper.so"))
+                && !mapsContain(pid, QStringLiteral("libOsiris.so"))) {
+                log(QStringLiteral("[CS2] Unloaded"), Level::Ok);
+                emit unloadFinished(true);
+                return;
+            }
+            log(QStringLiteral("[CS2] Unload did not complete - the module may still be running "
+                               "its deferred unmap, or it has active hooks"),
+                Level::Warn);
+            emit unloadFinished(false);
+        });
+}
+
 void Injector::gdbFallback()
 {
     const QString tmp =

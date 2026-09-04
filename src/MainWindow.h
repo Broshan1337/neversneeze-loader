@@ -23,24 +23,33 @@ private slots:
     void onLog(const QString &text, int level);
     void onSteamButton();
     void onCs2Button();
+    void onUnloadButton();
+    void onLaunchCs2();
     void onAutoToggled(bool on);
     void onAutoSteamToggled(bool on);
 
 private:
-    enum class AutoState { Off, WaitSteam, WaitCs2, WaitCs2Ready, Done };
+    enum class AutoState { Off, WaitSteam, WaitCs2, WaitCs2Ready, Watch, Done };
 
     bool resolveProjectRoot();
     void startBuildCheck();
+    void loadSettings();
+    void saveSettings();
     void updateStates();
     void log(const QString &text, Injector::Level level = Injector::Level::Info);
     void autoTick();
     void stopAuto(const QString &reason, Injector::Level level = Injector::Level::Warn);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
 
     Injector m_injector;
     StatusCard *m_steamCard = nullptr;
     StatusCard *m_cs2Card = nullptr;
     QPushButton *m_steamBtn = nullptr;
     QPushButton *m_cs2Btn = nullptr;
+    QPushButton *m_unloadBtn = nullptr;
+    QPushButton *m_launchBtn = nullptr;
     QComboBox *m_buildBox = nullptr;
     QCheckBox *m_autoBox = nullptr;
     QCheckBox *m_autoSteamBox = nullptr;

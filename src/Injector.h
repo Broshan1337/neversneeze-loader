@@ -34,11 +34,13 @@ public:
     void rebuild(const std::function<void(bool ok)> &done);
     void injectSteam(qint64 pid);
     void injectCs2(qint64 pid, bool debugBuild);
+    void unloadCs2(qint64 pid);
 
 signals:
     void logMessage(const QString &text, int level);
     void steamFinished(bool ok);
     void cs2Finished(bool ok);
+    void unloadFinished(bool ok);
 
 private:
     void run(const QString &prog, const QStringList &args, DoneFn done, bool logOutput = true);
