@@ -74,6 +74,8 @@ MainWindow::MainWindow()
         QComboBox { background:#18181a; color:#dfe4ea; border:1px solid #26262a;
             border-radius:6px; padding:6px 10px; font-size:12px; }
         QComboBox:hover { border-color:#3a3a40; }
+        QComboBox::drop-down { border:none; background:transparent; width:20px; }
+        QComboBox::down-arrow { image:url(:/assets/chevron.png); width:12px; height:12px; }
         QComboBox QAbstractItemView { background:#101012; color:#dfe4ea;
             selection-background-color:#26262a; selection-color:#ab46ff; border:1px solid #26262a; }
         QCheckBox { color:#aaadb8; font-size:12px; spacing:7px; background:transparent; }
