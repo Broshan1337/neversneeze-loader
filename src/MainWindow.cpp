@@ -962,7 +962,7 @@ void MainWindow::onSteamButton()
 
 void MainWindow::onCs2Button()
 {
-    if (!m_steamDecided || !m_cs2Pid || m_cs2Busy || m_cs2Injected)
+    if (!m_cs2Pid || m_cs2Busy || m_cs2Injected)
         return;
 
     const bool debug = m_buildBox->currentData().toBool();
