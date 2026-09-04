@@ -29,6 +29,7 @@ public:
     static bool isRoot();
     static bool mapsContain(qint64 pid, const QString &needle);
     static QStringList missingCs2Modules(qint64 pid);
+    static qint64 cpuJiffies(qint64 pid);   // utime+stime clock ticks, -1 if unreadable
 
     void checkBuild(const std::function<void(const BuildState &)> &done);
     void rebuild(const std::function<void(bool ok)> &done);

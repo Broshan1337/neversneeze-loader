@@ -609,6 +609,8 @@ void MainWindow::autoTick()
         if (!m_cs2Pid) {
             m_autoState = AutoState::WaitCs2;
             m_autoSettle = 0;
+            m_cpuStableMs = 0;
+            m_lastCpuJiffies = -1;
             log(QStringLiteral("[Auto] CS2 disappeared - waiting for it to come back..."));
             return;
         }
@@ -619,6 +621,8 @@ void MainWindow::autoTick()
         const QStringList missing = Injector::missingCs2Modules(m_cs2Pid);
         if (!missing.isEmpty()) {
             m_autoSettle = 0;
+            m_cpuStableMs = 0;
+            m_lastCpuJiffies = -1;
             const QString signature = missing.join(QStringLiteral(", "));
             if (signature != m_lastMissing) {
                 m_lastMissing = signature;
@@ -626,9 +630,35 @@ void MainWindow::autoTick()
             }
             return;
         }
-        if (++m_autoSettle >= 3) {
-            log(QStringLiteral("[Auto] CS2 fully loaded - injecting"), Injector::Level::Ok);
+
+        // Module map alone is not enough (everything maps early in boot; injecting
+        // before the main menu is up leaves the menu grayed out). Wait for the
+        // CPU to go quiet: CS2 burns a full core while loading, then idles in the
+        // main menu. Require ~1.5s of a stable (non-increasing) jiffies counter.
+        const qint64 jiffies = Injector::cpuJiffies(m_cs2Pid);
+        if (jiffies < 0) {
+            m_cpuStableMs = 0;
+            return;
+        }
+        if (m_lastCpuJiffies >= 0 && jiffies != m_lastCpuJiffies) {
+            m_cpuStableMs = 0;
+            m_autoSettle = 0;
+            static bool loggedBusy = false;
+            if (!loggedBusy) {
+                loggedBusy = true;
+                log(QStringLiteral("[Auto] modules mapped - waiting for load CPU burn to settle..."));
+            }
+        } else {
+            m_cpuStableMs += 1000;
+        }
+        m_lastCpuJiffies = jiffies;
+
+        if (m_cpuStableMs >= 3000 && ++m_autoSettle >= 2) {
+            log(QStringLiteral("[Auto] CS2 fully loaded (modules + CPU quiet) - injecting"),
+                Injector::Level::Ok);
             m_cs2Busy = true;
+            m_cpuStableMs = 0;
+            m_lastCpuJiffies = -1;
             updateStates();
             m_injector.injectCs2(m_cs2Pid, m_buildBox->currentData().toBool());
         }

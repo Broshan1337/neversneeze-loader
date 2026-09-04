@@ -368,6 +368,28 @@ void Injector::unloadCs2(qint64 pid)
         });
 }
 
+qint64 Injector::cpuJiffies(qint64 pid)
+{
+    QFile stat(QStringLiteral("/proc/%1/stat").arg(pid));
+    if (!stat.open(QIODevice::ReadOnly))
+        return -1;
+    // comm can contain spaces/parens - parse after the last ')'
+    const QString text = QString::fromLocal8Bit(stat.readAll());
+    const int close = text.lastIndexOf(QLatin1Char(')'));
+    if (close < 0)
+        return -1;
+    const QStringList fields = text.mid(close + 2).split(QLatin1Char(' '));
+    // fields[11]=utime fields[12]=stime (0-based after state, which is fields[0] here)
+    if (fields.size() < 13)
+        return -1;
+    bool okU = false, okS = false;
+    const qint64 utime = fields[11].toLongLong(&okU);
+    const qint64 stime = fields[12].toLongLong(&okS);
+    if (!okU || !okS)
+        return -1;
+    return utime + stime;
+}
+
 Injector::CleanupReport Injector::auditArtifacts(qint64 cs2Pid, QStringList *logLines)
 {
     CleanupReport report;

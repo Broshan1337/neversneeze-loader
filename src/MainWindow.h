@@ -85,6 +85,9 @@ protected:
     AutoState m_autoState = AutoState::Off;
     int m_autoSettle = 0;
     QString m_lastMissing;
+    qint64 m_lastCpuJiffies = -1;
+    qint64 m_cpuStableMs = 0;
+    qint64 m_modulesReadyMs = 0;
 
     QString m_accentHex = QStringLiteral("#ab46ff");
     QColor m_accentColor = QColor(0xab, 0x46, 0xff);
