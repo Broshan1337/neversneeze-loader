@@ -3,11 +3,14 @@
 #include "StatusCard.h"
 
 #include <QApplication>
+#include <QClipboard>
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QHBoxLayout>
+#include <QMenu>
 #include <QMessageBox>
 #include <QProcess>
 #include <QSettings>
@@ -55,6 +58,17 @@ MainWindow::MainWindow()
         QPushButton#UnloadBtn { background:#1e1416; border-color:#3c2226; color:#e8b8bc; }
         QPushButton#UnloadBtn:hover { background:#2a171b; border-color:#be3c42; color:#f2d3d5; }
         QPushButton#UnloadBtn:disabled { background:#121214; border-color:#1c1c20; color:#5a5244; }
+        QPushButton#CleanupBtn { padding:6px 12px; font-size:12px; }
+        #VacPanel { background:#101012; border:1px solid #1a1a1e; border-radius:10px; }
+        #VacTitle { color:#565b63; font-size:10px; font-weight:700; letter-spacing:2px; background:transparent; }
+        #VacRow { font-size:11px; background:transparent; }
+        #VacOk { color:#ab46ff; }
+        #VacWarn { color:#f0b429; }
+        #VacBad { color:#e5484d; }
+        #VacMuted { color:#565b63; }
+        #StatsLabel { color:#565b63; font-size:11px; background:transparent; }
+        #AccountPill { color:#aaadb8; background:#18181a; border:1px solid #26262a;
+            border-radius:10px; padding:3px 12px; font-weight:600; font-size:11px; }
         QComboBox { background:#18181a; color:#dfe4ea; border:1px solid #26262a;
             border-radius:6px; padding:6px 10px; font-size:12px; }
         QComboBox:hover { border-color:#3a3a40; }
@@ -91,6 +105,10 @@ MainWindow::MainWindow()
     header->addStretch();
     m_rootPill = new QLabel(this);
     header->addWidget(m_rootPill);
+    m_accountPill = new QLabel(this);
+    m_accountPill->setObjectName(QStringLiteral("AccountPill"));
+    m_accountPill->setVisible(false);
+    header->addWidget(m_accountPill);
     rootLayout->addLayout(header);
 
     auto *cards = new QHBoxLayout;
@@ -130,16 +148,66 @@ MainWindow::MainWindow()
     autoRow->addWidget(m_autoBox);
     autoRow->addWidget(m_autoSteamBox);
     autoRow->addStretch();
+    m_statsLabel = new QLabel(this);
+    m_statsLabel->setObjectName(QStringLiteral("StatsLabel"));
+    autoRow->addWidget(m_statsLabel);
     rootLayout->addLayout(autoRow);
 
+    // VAC / status readout panel
+    auto *vacPanel = new QWidget(this);
+    vacPanel->setObjectName(QStringLiteral("VacPanel"));
+    auto *vacLayout = new QHBoxLayout(vacPanel);
+    vacLayout->setContentsMargins(14, 8, 14, 8);
+    vacLayout->setSpacing(10);
+    auto *vacTitle = new QLabel(QStringLiteral("STATUS"), vacPanel);
+    vacTitle->setObjectName(QStringLiteral("VacTitle"));
+    vacLayout->addWidget(vacTitle);
+    m_vacLog = new QLabel(vacPanel);
+    m_vacLog->setObjectName(QStringLiteral("VacRow"));
+    m_vacPtrace = new QLabel(vacPanel);
+    m_vacPtrace->setObjectName(QStringLiteral("VacRow"));
+    m_vacUid = new QLabel(vacPanel);
+    m_vacUid->setObjectName(QStringLiteral("VacRow"));
+    vacLayout->addWidget(m_vacLog);
+    vacLayout->addWidget(m_vacPtrace);
+    vacLayout->addWidget(m_vacUid);
+    vacLayout->addStretch();
+    m_cleanupBtn = new QPushButton(QStringLiteral("Cleanup"), vacPanel);
+    m_cleanupBtn->setObjectName(QStringLiteral("CleanupBtn"));
+    m_cleanupBtn->setToolTip(QStringLiteral("Reset /tmp/dumps blocker, remove stale temp copies, audit mapped paths"));
+    vacLayout->addWidget(m_cleanupBtn);
+    rootLayout->addWidget(vacPanel);
+
+    auto *logHeaderRow = new QHBoxLayout;
     auto *logHeader = new QLabel(QStringLiteral("LOG"), this);
     logHeader->setObjectName(QStringLiteral("LogHeader"));
-    rootLayout->addWidget(logHeader);
+    logHeaderRow->addWidget(logHeader);
+    logHeaderRow->addStretch();
+    rootLayout->addLayout(logHeaderRow);
 
     m_logView = new QPlainTextEdit(this);
     m_logView->setObjectName(QStringLiteral("Log"));
     m_logView->setReadOnly(true);
     m_logView->setMaximumBlockCount(2000);
+    m_logView->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_logView, &QPlainTextEdit::customContextMenuRequested, this, [this](const QPoint &pos) {
+        QMenu menu(this);
+        menu.addAction(QStringLiteral("Copy all"), this, [this] {
+            QApplication::clipboard()->setText(m_logView->toPlainText());
+        });
+        menu.addAction(QStringLiteral("Save session log…"), this, [this] {
+            const QString path = QDir::homePath() + QStringLiteral("/.local/share/NeversneezeLoader");
+            QDir().mkpath(path);
+            const QString file = path + QStringLiteral("/session-%1.log")
+                                     .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss")));
+            QFile f(file);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                f.write(m_logView->toPlainText().toUtf8());
+                log(QStringLiteral("[Loader] session log saved: %1").arg(file), Injector::Level::Ok);
+            }
+        });
+        menu.exec(m_logView->mapToGlobal(pos));
+    });
     rootLayout->addWidget(m_logView, 2);
 
     if (!resolveProjectRoot())
@@ -170,6 +238,12 @@ MainWindow::MainWindow()
         m_cs2Busy = false;
         m_cs2Injected = ok;
         m_cs2Failed = !ok;
+        playSound(ok);
+        if (ok && m_injectStartedAt.isValid()) {
+            const qint64 waited = m_injectStartedAt.msecsTo(QDateTime::currentDateTime());
+            log(QStringLiteral("[Loader] injection round took %1s").arg(waited / 1000), Injector::Level::Info);
+            m_injectStartedAt = QDateTime();
+        }
         if (!ok && m_autoState != AutoState::Off) {
             stopAuto(QStringLiteral("injection failed"));
         } else if (ok && m_autoState != AutoState::Off) {
@@ -177,11 +251,13 @@ MainWindow::MainWindow()
             log(QStringLiteral("[Auto] injected - watching for CS2 restarts..."), Injector::Level::Ok);
         }
         updateStates();
+        updateVacPanel();
     });
     connect(m_steamBtn, &QPushButton::clicked, this, &MainWindow::onSteamButton);
     connect(m_cs2Btn, &QPushButton::clicked, this, &MainWindow::onCs2Button);
     connect(m_unloadBtn, &QPushButton::clicked, this, &MainWindow::onUnloadButton);
     connect(m_launchBtn, &QPushButton::clicked, this, &MainWindow::onLaunchCs2);
+    connect(m_cleanupBtn, &QPushButton::clicked, this, &MainWindow::onCleanupButton);
     connect(m_autoBox, &QCheckBox::toggled, this, &MainWindow::onAutoToggled);
     connect(m_autoSteamBox, &QCheckBox::toggled, this, &MainWindow::onAutoSteamToggled);
 
@@ -190,12 +266,16 @@ MainWindow::MainWindow()
         if (ok) {
             m_cs2Injected = false;
             m_cs2Failed = false;
+            playSound(true);
         }
         updateStates();
     });
 
     connect(&m_pollTimer, &QTimer::timeout, this, &MainWindow::poll);
     loadSettings();
+    applyThemeAccent();
+    refreshAccountPill();
+    updateVacPanel();
     m_pollTimer.start(1000);
     poll();
 
@@ -221,7 +301,8 @@ MainWindow::MainWindow()
 }
 
 bool MainWindow::resolveProjectRoot()
-{    QDir dir(QApplication::applicationDirPath());
+{
+    QDir dir(QApplication::applicationDirPath());
     for (int i = 0; i < 5; ++i) {
         if (QFileInfo::exists(dir.filePath(QStringLiteral("build/Source/libMangoHud.so")))
             || QFileInfo::exists(dir.filePath(QStringLiteral("build/Source/libOsiris.so")))
@@ -262,8 +343,115 @@ void MainWindow::saveSettings()
     settings.setValue(QStringLiteral("debugBuild"), m_buildBox->currentIndex() == 1);
 }
 
-void MainWindow::startBuildCheck()
+void MainWindow::applyThemeAccent()
 {
+    // follow the in-game menu accent (Menu.Theme.Acccent in default.cfg, RGBA hex)
+    QFile cfg(QDir::homePath() + QStringLiteral("/OsirisCS2/configs/default.cfg"));
+    QString accentHex = QStringLiteral("#ab46ff");
+    if (cfg.open(QIODevice::ReadOnly)) {
+        const QString text = QString::fromUtf8(cfg.readAll());
+        QRegularExpression re(QStringLiteral("\"Accent\"\\s+(\\d+)"));
+        const auto match = re.match(text);
+        if (match.hasMatch()) {
+            const uint value = match.captured(1).toUInt();
+            const QColor c((value >> 24) & 0xFF, (value >> 16) & 0xFF, (value >> 8) & 0xFF);
+            if (c.isValid())
+                accentHex = c.name();
+        }
+    }
+    if (accentHex == m_accentHex)
+        return;
+    m_accentHex = accentHex;
+    m_accentColor = QColor(accentHex);
+
+    // re-tint the accent-driven UI bits
+    QString qss = styleSheet();
+    qss.replace(QStringLiteral("#a3d41f"), m_accentHex);
+    qss.replace(QStringLiteral("#ab46ff"), m_accentHex);
+    setStyleSheet(qss);
+    update();
+    log(QStringLiteral("[Loader] theme accent matched to in-game menu: %1").arg(m_accentHex),
+        Injector::Level::Info);
+}
+
+void MainWindow::updateVacPanel()
+{
+    const Injector::VacStatus status = Injector::readVacStatus();
+    const qint64 hash = status.guiLogSize * 1315423911ULL + status.guiLogAgeMs
+        + status.ptraceScope.size() * 31 + status.cs2Uid * 7 + (status.steamAccount.size() << 8);
+
+    if (m_lastVacHash != 0 && hash == m_lastVacHash)
+        return;
+    m_lastVacHash = hash;
+
+    auto setRow = [this](QLabel *label, const QString &text, const char *objectName) {
+        label->setText(text);
+        label->setObjectName(QLatin1String(objectName));
+        label->setStyleSheet(label->styleSheet()); // re-apply QSS after objectName change
+    };
+
+    if (!status.guiLogExists) {
+        setRow(m_vacLog, QStringLiteral("gui.log: absent (clean)"), "VacMuted");
+    } else if (status.guiLogAgeMs >= 0 && status.guiLogAgeMs < 60 * 1000) {
+        setRow(m_vacLog, QStringLiteral("gui.log: activity %1s ago")
+                             .arg(status.guiLogAgeMs / 1000), "VacWarn");
+    } else {
+        setRow(m_vacLog, QStringLiteral("gui.log: silent (%1 KB)")
+                             .arg(status.guiLogSize / 1024), "VacOk");
+    }
+
+    if (status.ptraceScope == QStringLiteral("0"))
+        setRow(m_vacPtrace, QStringLiteral("ptrace: unrestricted (0)"), "VacWarn");
+    else if (status.ptraceScope.isEmpty())
+        setRow(m_vacPtrace, QStringLiteral("ptrace: n/a"), "VacMuted");
+    else
+        setRow(m_vacPtrace, QStringLiteral("ptrace: scope %1").arg(status.ptraceScope), "VacOk");
+
+    if (status.cs2Uid < 0)
+        setRow(m_vacUid, QStringLiteral("cs2: not running"), "VacMuted");
+    else if (status.cs2SameUserAsRoot)
+        setRow(m_vacUid, QStringLiteral("cs2: running as root (!)"), "VacBad");
+    else
+        setRow(m_vacUid, QStringLiteral("cs2: uid %1").arg(status.cs2Uid), "VacOk");
+
+    // header account pill (added next to the ROOT pill)
+    if (!status.steamAccount.isEmpty() && m_accountPill) {
+        m_accountPill->setText(status.steamAccount);
+        m_accountPill->setObjectName(QStringLiteral("AccountPill"));
+        m_accountPill->setStyleSheet(m_accountPill->styleSheet());
+        m_accountPill->setVisible(true);
+    }
+}
+
+void MainWindow::refreshAccountPill()
+{
+    updateVacPanel();
+}
+
+void MainWindow::playSound(bool success)
+{
+    const QString file = success ? QStringLiteral("/usr/share/sounds/freedesktop/stereo/complete.oga")
+                                 : QStringLiteral("/usr/share/sounds/freedesktop/stereo/dialog-error.oga");
+    if (!QFileInfo::exists(file))
+        return;
+    QProcess::startDetached(QStringLiteral("paplay"), {file});
+}
+
+void MainWindow::onCleanupButton()
+{
+    QStringList lines;
+    const Injector::CleanupReport report = Injector::auditArtifacts(m_cs2Pid, &lines);
+    for (const QString &line : lines)
+        log(line, report.clean ? Injector::Level::Info : Injector::Level::Warn);
+
+    if (report.clean)
+        log(QStringLiteral("[Cleanup] all clear - no crumbs left"), Injector::Level::Ok);
+    else if (!report.mapsResidue.isEmpty())
+        log(QStringLiteral("[Cleanup] residue still mapped - unload/restart CS2 to clear it"),
+            Injector::Level::Error);
+}
+
+void MainWindow::startBuildCheck(){
     m_injector.checkBuild([this](const Injector::BuildState &state) {
         log(QStringLiteral("[Build] Checking modules..."));
         if (!state.steamModuleExists)
@@ -298,9 +486,13 @@ void MainWindow::poll()
 
     if (m_cs2Pid && m_cs2Pid != m_lastCs2Pid) {
         m_alreadyInjectedLogged = false;
-        if (!m_lastCs2Pid)
+        if (!m_lastCs2Pid) {
             log(QStringLiteral("[CS2] Found CS2 (PID: %1)").arg(m_cs2Pid), Injector::Level::Ok);
+            m_cs2DetectedAt = QDateTime::currentDateTime();
+        }
     }
+    if (!m_cs2Pid)
+        m_cs2DetectedAt = QDateTime();
     m_lastCs2Pid = m_cs2Pid;
 
     if (m_cs2Pid && !m_cs2Busy) {
@@ -314,11 +506,21 @@ void MainWindow::poll()
                 m_cs2Injected = true;
                 if (!m_alreadyInjectedLogged) {
                     m_alreadyInjectedLogged = true;
+                    m_injectionsToday++;
+                    if (m_cs2DetectedAt.isValid()) {
+                        m_lastLoadWaitMs = m_cs2DetectedAt.msecsTo(QDateTime::currentDateTime());
+                        m_statsLabel->setText(QStringLiteral("%1 injections this session · last load wait %2s")
+                                                  .arg(m_injectionsToday)
+                                                  .arg(m_lastLoadWaitMs / 1000));
+                    } else {
+                        m_statsLabel->setText(QStringLiteral("%1 injections this session").arg(m_injectionsToday));
+                    }
                     log(QStringLiteral("[CS2] cheat library is already mapped in CS2 (%1)")
                             .arg(m_cs2Pid),
                         Injector::Level::Ok);
                 }
                 updateStates();
+                updateVacPanel();
             } else if (!mangoHud && !oldLib && m_cs2Injected) {
                 // library unmapped: in-game unload or deferred unmap completed
                 m_cs2Injected = false;
@@ -331,6 +533,13 @@ void MainWindow::poll()
 
     updateStates();
     autoTick();
+
+    // cheap periodic refreshes (throttled internally): theme accent + vac panel
+    static int tick = 0;
+    if (++tick % 15 == 0) {
+        applyThemeAccent();
+        updateVacPanel();
+    }
 }
 
 void MainWindow::autoTick()
@@ -598,6 +807,7 @@ void MainWindow::onCs2Button()
     const bool debug = m_buildBox->currentData().toBool();
     saveSettings();
     m_cs2Busy = true;
+    m_injectStartedAt = QDateTime::currentDateTime();
     updateStates();
     m_injector.injectCs2(m_cs2Pid, debug);
 }

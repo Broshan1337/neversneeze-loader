@@ -35,6 +35,28 @@ public:
     void injectSteam(qint64 pid);
     void injectCs2(qint64 pid, bool debugBuild);
     void unloadCs2(qint64 pid);
+    void cleanupArtifacts(qint64 cs2Pid);
+
+    struct CleanupReport {
+        bool dumpsFixed = false;
+        bool dumpsOk = false;
+        QStringList memfdCopies;   // leftover temp copies found & removed
+        QStringList mapsResidue;   // suspicious paths still mapped in cs2
+        bool clean = false;
+    };
+    static CleanupReport auditArtifacts(qint64 cs2Pid, QStringList *logLines);
+
+    // VAC/status readout
+    struct VacStatus {
+        bool guiLogExists = false;
+        qint64 guiLogSize = 0;       // anomaly-only contract: healthy = silent (no recent lines)
+        qint64 guiLogAgeMs = -1;     // since last modification; -1 = unknown
+        QString ptraceScope;         // /proc/sys/kernel/yama/ptrace_scope
+        qint64 cs2Uid = -1;          // owner of the cs2 process
+        bool cs2SameUserAsRoot = false;
+        QString steamAccount;        // most recent login from loginusers.vdf
+    };
+    static VacStatus readVacStatus(const QString &steamRoot = QString());
 
 signals:
     void logMessage(const QString &text, int level);

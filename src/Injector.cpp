@@ -5,7 +5,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QRegularExpression>
+#include <QSettings>
 
+#include <sys/stat.h>
 #include <unistd.h>
 
 Injector::Injector(QObject *parent)
@@ -363,6 +366,155 @@ void Injector::unloadCs2(qint64 pid)
                 Level::Warn);
             emit unloadFinished(false);
         });
+}
+
+Injector::CleanupReport Injector::auditArtifacts(qint64 cs2Pid, QStringList *logLines)
+{
+    CleanupReport report;
+    const auto say = [logLines](const QString &line) {
+        if (logLines)
+            logLines->append(line);
+    };
+
+    // 1. /tmp/dumps must exist with mode 000 (crash-dump blocker)
+    struct stat st;
+    if (::stat("/tmp/dumps", &st) == 0 && S_ISDIR(st.st_mode)) {
+        const mode_t perms = st.st_mode & 0777;
+        if (perms != 0) {
+            say(QStringLiteral("[Cleanup] /tmp/dumps had permissions %1 - resetting to 000")
+                    .arg(QString::number(perms, 8), 3, QLatin1Char('0')));
+            if (::chmod("/tmp/dumps", 0) == 0) {
+                report.dumpsFixed = true;
+                report.dumpsOk = true;
+            }
+        } else {
+            report.dumpsOk = true;
+        }
+    } else if (::mkdir("/tmp/dumps", 0000) == 0) {
+        say(QStringLiteral("[Cleanup] recreated /tmp/dumps (mode 000)"));
+        report.dumpsOk = true;
+        report.dumpsFixed = true;
+    } else {
+        say(QStringLiteral("[Cleanup] WARNING: could not ensure /tmp/dumps blocker"));
+    }
+
+    // 2. leftover module copies in the spray dirs
+    const QDateTime now = QDateTime::currentDateTime();
+    const QStringList dirs = {QStringLiteral("/tmp/.X11-unix"), QStringLiteral("/tmp/.font-unix")};
+    for (const QString &dir : dirs) {
+        QDir d(dir);
+        const QStringList entries =
+            d.entryList(QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot);
+        for (const QString &name : entries) {
+            if (!name.startsWith(QStringLiteral(".Xauthority-"))
+                && !name.startsWith(QStringLiteral(".fc-cache-")))
+                continue;
+            const QString full = d.filePath(name);
+            const QFileInfo info(full);
+            // anything older than 10 minutes is stale debris; fresh files may be an in-flight run
+            if (info.lastModified().msecsTo(now) < 10 * 60 * 1000)
+                continue;
+            if (QFile::remove(full)) {
+                report.memfdCopies.append(full);
+                say(QStringLiteral("[Cleanup] removed stale temp copy %1").arg(full));
+            } else {
+                say(QStringLiteral("[Cleanup] WARNING: could not remove %1").arg(full));
+            }
+        }
+    }
+
+    // 3. residue check: suspicious paths in cs2 maps beyond the libs themselves
+    if (cs2Pid > 0) {
+        QFile maps(QStringLiteral("/proc/%1/maps").arg(cs2Pid));
+        if (maps.open(QIODevice::ReadOnly)) {
+            const QStringList lines = QString::fromLocal8Bit(maps.readAll()).split(QLatin1Char('\n'));
+            for (const QString &line : lines) {
+                if (!line.contains(QStringLiteral("/tmp/.X11-unix/"))
+                    && !line.contains(QStringLiteral("/tmp/.font-unix/")))
+                    continue;
+                const int spacePos = line.lastIndexOf(QLatin1Char(' '));
+                if (spacePos < 0)
+                    continue;
+                const QString path = line.mid(spacePos + 1).trimmed();
+                if (!path.startsWith(QLatin1Char('/')))
+                    continue;
+                // the module deletes its own copies on inject; anything still mapped is residue
+                if (!report.mapsResidue.contains(path)) {
+                    report.mapsResidue.append(path);
+                    say(QStringLiteral("[Cleanup] WARNING: still mapped in CS2: %1").arg(path));
+                }
+            }
+        }
+    }
+
+    report.clean = report.dumpsOk && report.memfdCopies.isEmpty() && report.mapsResidue.isEmpty();
+    return report;
+}
+
+Injector::VacStatus Injector::readVacStatus(const QString &steamRoot)
+{
+    VacStatus status;
+
+    // 1. in-game anomaly log health (silent = healthy)
+    QFile guiLog(QStringLiteral("/tmp/gamesense_gui.log"));
+    status.guiLogExists = guiLog.exists();
+    if (status.guiLogExists) {
+        QFileInfo info(guiLog);
+        status.guiLogSize = info.size();
+        status.guiLogAgeMs = info.lastModified().msecsTo(QDateTime::currentDateTime());
+    }
+
+    // 2. ptrace scope
+    QFile ptrace(QStringLiteral("/proc/sys/kernel/yama/ptrace_scope"));
+    if (ptrace.open(QIODevice::ReadOnly))
+        status.ptraceScope = QString::fromLocal8Bit(ptrace.readAll()).trimmed();
+
+    // 3. cs2 owner uid
+    const qint64 cs2Pid = findPid(QStringLiteral("cs2"));
+    if (cs2Pid > 0) {
+        struct stat st;
+        if (::stat(QStringLiteral("/proc/%1").arg(cs2Pid).toUtf8().constData(), &st) == 0) {
+            status.cs2Uid = st.st_uid;
+            status.cs2SameUserAsRoot = (st.st_uid == 0);
+        }
+    }
+
+    // 4. steam account (most recent login timestamp wins)
+    QString root = steamRoot;
+    if (root.isEmpty()) {
+        const QString localSteam = QDir::homePath() + QStringLiteral("/.local/share/Steam");
+        const QString dotSteam = QDir::homePath() + QStringLiteral("/.steam/steam");
+        root = QDir(localSteam).exists() ? localSteam : dotSteam;
+    }
+    QFile loginUsers(root + QStringLiteral("/config/loginusers.vdf"));
+    if (loginUsers.open(QIODevice::ReadOnly)) {
+        const QString text = QString::fromUtf8(loginUsers.readAll());
+        QRegularExpression userRe(QStringLiteral("\"(\\d{17})\"\n\t\\{"));
+        QRegularExpression mostRecentRe(QStringLiteral("\"mostrecenttimestamp\"\\s+\"(\\d+)\""));
+        // per-account blocks: find each account and its mostrecenttimestamp
+        QRegularExpressionMatchIterator it(userRe.globalMatch(text));
+        qint64 bestTs = 0;
+        QString bestName;
+        QRegularExpression nameRe(QStringLiteral("\"AccountName\"\\s+\"([^\"]+)\""));
+        QRegularExpression personaRe(QStringLiteral("\"PersonaName\"\\s+\"([^\"]+)\""));
+        while (it.hasNext()) {
+            const auto match = it.next();
+            const QString block = text.mid(match.capturedStart(), 800);
+            const auto tsMatch = mostRecentRe.match(block);
+            if (!tsMatch.hasMatch())
+                continue;
+            const qint64 ts = tsMatch.captured(1).toLongLong();
+            if (ts <= bestTs)
+                continue;
+            bestTs = ts;
+            const auto persona = personaRe.match(block);
+            bestName = persona.hasMatch() ? persona.captured(1) : nameRe.match(block).captured(1);
+        }
+        if (!bestName.isEmpty())
+            status.steamAccount = bestName;
+    }
+
+    return status;
 }
 
 void Injector::gdbFallback()
