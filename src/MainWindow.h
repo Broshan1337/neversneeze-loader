@@ -84,7 +84,9 @@ protected:
     bool m_cs2Failed = false;
     bool m_cs2Busy = false;
     bool m_alreadyInjectedLogged = false;
+    bool m_alreadySteamLogged = false;
     qint64 m_lastCs2Pid = 0;
+    qint64 m_lastSteamPid = 0;
 
     AutoState m_autoState = AutoState::Off;
     int m_autoSettle = 0;

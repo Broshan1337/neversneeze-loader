@@ -580,6 +580,35 @@ void MainWindow::poll()
     m_steamPid = Injector::findPid(QStringLiteral("steam"));
     m_cs2Pid = Injector::findPid(QStringLiteral("cs2"));
 
+    if (m_steamPid && m_steamPid != m_lastSteamPid) {
+        if (!m_lastSteamPid)
+            log(QStringLiteral("[Steam] Found Steam (PID: %1)").arg(m_steamPid), Injector::Level::Ok);
+        else
+            log(QStringLiteral("[Steam] Steam restarted (PID: %1) - module state reset").arg(m_steamPid),
+                Injector::Level::Info);
+        // a fresh Steam process never has the module mapped
+        m_steamInjected = false;
+        m_steamSkipped = false;
+        m_steamFailed = false;
+        m_steamDecided = false;
+        m_alreadySteamLogged = false;
+    }
+    if (!m_steamPid)
+        m_lastSteamPid = 0;
+
+    if (m_steamPid && !m_steamInjected && !m_steamBusy
+        && Injector::mapsContain(m_steamPid, QStringLiteral("libSteamModule.so"))) {
+        m_steamInjected = true;
+        m_steamDecided = true;
+        if (!m_alreadySteamLogged) {
+            m_alreadySteamLogged = true;
+            log(QStringLiteral("[Steam] libSteamModule.so is already mapped in Steam (%1)")
+                    .arg(m_steamPid),
+                Injector::Level::Ok);
+        }
+    }
+    m_lastSteamPid = m_steamPid;
+
     if (m_cs2Pid && m_cs2Pid != m_lastCs2Pid) {
         m_alreadyInjectedLogged = false;
         if (!m_lastCs2Pid) {
@@ -844,7 +873,7 @@ void MainWindow::updateStates()
     else
         m_steamCard->setSubtitle(QStringLiteral("Not running"));
 
-    m_steamBtn->setEnabled(m_steamPid && !m_steamBusy && !m_steamDecided);
+    m_steamBtn->setEnabled(m_steamPid && !m_steamBusy && !m_steamDecided && !m_steamInjected);
 
     if (m_cs2Injected)
         m_cs2Card->setStatus(Icons::Status::Check);
