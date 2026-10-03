@@ -35,6 +35,7 @@ StatusCard::StatusCard(Icons::Kind kind, const QString &title, const QColor &acc
     m_badge->setPixmap(Icons::badge(Icons::Status::Idle, kBadgeSize));
     m_badge->move(kIconSlot - kBadgeSize - 4, 0);
     m_badge->raise();
+    m_badge->hide(); // Idle = nothing to say yet
 
     QLabel *titleLabel = new QLabel(title, this);
     titleLabel->setAlignment(Qt::AlignCenter);
@@ -87,6 +88,7 @@ void StatusCard::setStatus(Icons::Status status)
     if (m_status == status)
         return;
     m_status = status;
+    m_badge->setVisible(status != Icons::Status::Idle); // idle = clean icon, no badge
     m_badge->setPixmap(Icons::badge(status, kBadgeSize));
     m_badge->setGeometry(kIconSlot - kBadgeSize - 4, 0, kBadgeSize, kBadgeSize);
     if (status == Icons::Status::Check)

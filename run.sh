@@ -1,5 +1,5 @@
 #!/bin/bash
-# Neversneeze Loader launcher: elevates to root with a GUI password prompt (pkexec).
+# Neversnooze Loader launcher: elevates to root with a GUI password prompt (pkexec).
 DIR="$(cd "$(dirname "$0")" && pwd)"
 BIN="$DIR/build/Loader"
 

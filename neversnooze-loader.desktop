@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Neversnooze Loader
+Comment=CS2 module injector UI
+Exec=sh -c "cd \"%k/../\"; exec ./run-ship.sh"
+Terminal=false
+Categories=Development;
+# Icon: after installing to a stable location, set Icon to the absolute path of assets/nslogo.png
+

@@ -10,8 +10,13 @@
 #include <QCheckBox>
 #include <QDateTime>
 #include <QLabel>
+#include <QLineEdit>
+#include <QSystemTrayIcon>
 
 class StatusCard;
+class QProgressBar;
+class QToolButton;
+class QCloseEvent;
 
 class MainWindow : public QMainWindow
 {
@@ -24,6 +29,9 @@ private slots:
     void onLog(const QString &text, int level);
     void onSteamButton();
     void onCs2Button();
+    void onTf2Button();
+    void onTf2UnloadButton();
+    void onInjectButton();
     void onUnloadButton();
     void onLaunchCs2();
     void onCleanupButton();
@@ -31,6 +39,7 @@ private slots:
     void onPtracePersistToggled(bool on);
     void onAutoToggled(bool on);
     void onAutoSteamToggled(bool on);
+    void onOpenAdvanced();
 
 private:
     enum class AutoState { Off, WaitSteam, WaitCs2, WaitCs2Ready, Watch, Done };
@@ -43,6 +52,8 @@ private:
     void updateVacPanel();
     void refreshAccountPill();
     void applyThemeAccent();
+    void updateBuildFreshness();
+    void setupTray();
     void log(const QString &text, Injector::Level level = Injector::Level::Info);
     void autoTick();
     void stopAuto(const QString &reason, Injector::Level level = Injector::Level::Warn);
@@ -50,15 +61,24 @@ private:
 
 protected:
     void paintEvent(QPaintEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
 
     Injector m_injector;
     StatusCard *m_steamCard = nullptr;
     StatusCard *m_cs2Card = nullptr;
+    StatusCard *m_tf2Card = nullptr;
+    QPushButton *m_injectBtn = nullptr;
     QPushButton *m_steamBtn = nullptr;
     QPushButton *m_cs2Btn = nullptr;
+    QPushButton *m_tf2InjectBtn = nullptr;
+    QPushButton *m_tf2UnloadBtn = nullptr;
     QPushButton *m_unloadBtn = nullptr;
     QPushButton *m_launchBtn = nullptr;
     QPushButton *m_cleanupBtn = nullptr;
+    QProgressBar *m_progress = nullptr;
+    QToolButton *m_advancedToggle = nullptr;
+    QWidget *m_cs2Advanced = nullptr;
+    QSystemTrayIcon *m_tray = nullptr;
     QLabel *m_vacLog = nullptr;
     QLabel *m_vacPtrace = nullptr;
     QLabel *m_vacUid = nullptr;
@@ -69,12 +89,20 @@ protected:
     QCheckBox *m_autoBox = nullptr;
     QCheckBox *m_autoSteamBox = nullptr;
     QPlainTextEdit *m_logView = nullptr;
+    QPushButton *m_advWindowBtn = nullptr;
+    class AdvancedWindow *m_advWindow = nullptr;
     QLabel *m_rootPill = nullptr;
     QLabel *m_accountPill = nullptr;
     QTimer m_pollTimer;
 
+    QString m_projectRoot;
+    bool m_buildStale = false;
+    QString m_buildAge;
+    bool m_forceQuit = false;
+
     qint64 m_steamPid = 0;
     qint64 m_cs2Pid = 0;
+    qint64 m_tf2Pid = 0;
     bool m_steamDecided = false;
     bool m_steamInjected = false;
     bool m_steamSkipped = false;
@@ -83,10 +111,15 @@ protected:
     bool m_cs2Injected = false;
     bool m_cs2Failed = false;
     bool m_cs2Busy = false;
+    bool m_tf2Injected = false;
+    bool m_tf2Failed = false;
+    bool m_tf2Busy = false;
     bool m_alreadyInjectedLogged = false;
     bool m_alreadySteamLogged = false;
+    bool m_alreadyTf2Logged = false;
     qint64 m_lastCs2Pid = 0;
     qint64 m_lastSteamPid = 0;
+    qint64 m_lastTf2Pid = 0;
 
     AutoState m_autoState = AutoState::Off;
     int m_autoSettle = 0;
@@ -95,8 +128,8 @@ protected:
     int m_cpuQuietPolls = 0;
     int m_modulesReadyMs = 0;
 
-    QString m_accentHex = QStringLiteral("#ab46ff");
-    QColor m_accentColor = QColor(0xab, 0x46, 0xff);
+    QString m_accentHex = QStringLiteral("#967fee");
+    QColor m_accentColor = QColor(0x96, 0x7f, 0xee);
     QString m_sessionLogPath;
     int m_injectionsToday = 0;
     qint64 m_lastLoadWaitMs = -1;

@@ -42,13 +42,36 @@ QPainterPath agentPath()
     return body;
 }
 
+QPainterPath rocketPath()
+{
+    // TF2 rocket glyph on a 100x100 canvas, nose up, slight tilt.
+    QPainterPath r;
+    r.moveTo(50.0, 12.0);                                               // nose cone
+    r.quadTo(64.0, 30.0, 62.0, 55.0);                                   // right body
+    r.lineTo(38.0, 55.0);                                               // tail line
+    r.quadTo(36.0, 30.0, 50.0, 12.0);                                   // left body
+    r.moveTo(38.0, 55.0);
+    r.lineTo(26.0, 72.0);                                               // left fin
+    r.lineTo(38.0, 62.0);
+    r.moveTo(62.0, 55.0);
+    r.lineTo(74.0, 72.0);                                               // right fin
+    r.lineTo(62.0, 62.0);
+    r.moveTo(44.0, 64.0);                                               // exhaust plume
+    r.quadTo(50.0, 74.0, 50.0, 88.0);
+    r.quadTo(50.0, 74.0, 56.0, 64.0);
+    return r;
+}
+
 } // namespace
 
 QPixmap Icons::app(Kind kind, int size, const QColor &color)
 {
     // Real icons shipped from disk (embedded as resources); painted fallback if missing.
     const QString asset = kind == Kind::Steam ? QStringLiteral(":/assets/steam.png")
-                                              : QStringLiteral(":/assets/cs2.png");
+                          : kind == Kind::Cs2 ? QStringLiteral(":/assets/cs2.png")
+                          : kind == Kind::Tf2 ? QStringLiteral(":/assets/tf2logo.png")
+                                              : QString();
+    const bool roundAsset = kind == Kind::Steam;
     QPixmap pm(size * 2, size * 2);
     pm.fill(Qt::transparent);
 
@@ -65,13 +88,31 @@ QPixmap Icons::app(Kind kind, int size, const QColor &color)
     QPixmap src(asset);
     if (!src.isNull()) {
         const QPixmap cropped = src.scaled(s, s, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-        if (kind == Kind::Steam) {
+        if (roundAsset) {
             p.drawPixmap(0, 0, cropped);
         } else {
             p.setClipPath(tile);
             p.drawPixmap(0, 0, cropped);
             p.setClipping(false);
         }
+        pm.setDevicePixelRatio(2.0);
+        return pm;
+    }
+
+    if (kind == Kind::Tf2) {
+        // Fallback: painted TF tile (olive field + white rocket, TF2 orange border).
+        QLinearGradient grad(0, 0, 0, s);
+        grad.setColorAt(0.0, QColor(0x51, 0x46, 0x2a));
+        grad.setColorAt(1.0, QColor(0x33, 0x2c, 0x1a));
+        p.fillPath(tile, grad);
+        p.setPen(QPen(QColor(0xcf, 0x73, 0x32), s * 0.012));
+        p.setBrush(Qt::NoBrush);
+        p.drawPath(tile);
+
+        QPen body(QColor(0xf2, 0xf4, 0xf7), s * 0.05, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        p.setPen(body);
+        p.setBrush(Qt::NoBrush);
+        p.drawPath(rocketPath());
         pm.setDevicePixelRatio(2.0);
         return pm;
     }

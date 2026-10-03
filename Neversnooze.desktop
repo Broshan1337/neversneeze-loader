@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Neversnooze
+Comment=Neversnooze loader (prompts for the password, then opens)
+Exec=sh -c "cd \"%k/../\"; exec ./run-ship.sh"
+Terminal=false
+Categories=Utility;

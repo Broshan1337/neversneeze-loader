@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Neversneeze Loader
-Comment=CS2 module injector UI
-Exec=./run.sh
-Icon=./assets/nslogo.png
-Terminal=false
-Categories=Development;
-
