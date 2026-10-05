@@ -66,5 +66,22 @@ cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
+### Nix
+
+`nix build .` produces a fully self-contained loader: it embeds the Nix-built cs2 / tf2 /
+steam modules and `inject_memfd` from the sibling `gamesense` flake as encrypted payloads,
+and cross-compiles `ns_inject.exe` with the MinGW toolchain. Run it with `sudo nix run .`
+(needs root, same as `run.sh`).
+
+Two deviations from `rebuild-ship.sh`:
+
+- The CS2 payload is the plain GCC build — the Arkari/VMProtect ship artifact cannot be
+  reproduced inside a build sandbox.
+- The keydir comes from `gamesense#key-material` instead of `~/.config/neversnooze-keys`,
+  so a Nix-built loader only accepts modules built from the same key material (that's the
+  fail-closed trailer check doing its job). Build keys land in the world-readable Nix
+  store — acceptable for the throwaway per-build keys this flake generates; don't swap in
+  your machine-local keydir.
+
 `proton/` contains the Windows/Proton-side injector sources (cross-compiled
 with mingw, built automatically as part of the ship pipeline).
