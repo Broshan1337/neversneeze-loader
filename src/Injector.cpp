@@ -675,7 +675,7 @@ void Injector::injectCs2(qint64 pid, bool debugBuild)
         }
     }
 
-    run(QStringLiteral("/usr/bin/find"),
+    run(findExecutable(),
         {m_root + QStringLiteral("/cs2/Source"), QStringLiteral("-type"), QStringLiteral("f"),
          QStringLiteral("("), QStringLiteral("-name"), QStringLiteral("*.h"), QStringLiteral("-o"),
          QStringLiteral("-name"), QStringLiteral("*.cpp"), QStringLiteral(")"), QStringLiteral("-newer"),
@@ -1343,7 +1343,7 @@ void Injector::injectTf2(qint64 pid)
         }
     }
 
-    run(QStringLiteral("/usr/bin/find"),
+    run(findExecutable(),
         {m_root + QStringLiteral("/tf2/Source"), QStringLiteral("-type"), QStringLiteral("f"),
          QStringLiteral("("), QStringLiteral("-name"), QStringLiteral("*.h"), QStringLiteral("-o"),
          QStringLiteral("-name"), QStringLiteral("*.cpp"), QStringLiteral(")"), QStringLiteral("-newer"),
