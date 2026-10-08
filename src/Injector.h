@@ -121,7 +121,7 @@ private:
     // executable segments by reading the TARGET's memory (/proc/<pid>/mem) and compares
     // against a baseline taken by THIS process right after injection. An in-process patcher
     // can NOP the module's own SelfIntegrity check, but cannot rewrite what a separate root
-    // process reads out of the game. Two consecutive drifts -> /tmp/ns_unload_request (the
+    // process reads out of the game. Two consecutive drifts -> <exchangeRoot>/ns_unload_request (the
     // module's proven fail-closed teardown path) + a log line.
     void startIntegrityWatch();
     void integrityTick();

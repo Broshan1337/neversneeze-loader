@@ -9,11 +9,13 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QStandardPaths>
 #include <algorithm>
 #include <QProcess>
 #include <QVector>
 
 #include <sys/stat.h>
+#include <pwd.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <unistd.h>
@@ -25,6 +27,57 @@
 #include "Payloads.h"
 #include "SessionTrailer.h"
 #include "ObfAnnotations.h"
+
+namespace {
+
+// The module's exchange root (cs2/Source/Utils/NsPaths.h): $HOME/OsirisCS2 of the user the
+// game runs as. The loader usually runs as root via sudo (run.sh), so its own $HOME is
+// /root - resolve the REAL user's home instead: the invoking SUDO_USER first, then the
+// target process's uid. "/tmp" is the legacy fallback (pre-migration module builds still
+// poll there).
+QString moduleExchangeRoot(qint64 cs2Pid = 0)
+{
+    if (::geteuid() != 0) {
+        const QByteArray home = qgetenv("HOME");
+        if (!home.isEmpty())
+            return QString::fromLocal8Bit(home) + QStringLiteral("/OsirisCS2");
+    }
+    const QByteArray sudoUser = qgetenv("SUDO_USER");
+    if (!sudoUser.isEmpty()) {
+        if (passwd *pw = ::getpwnam(sudoUser.constData()))
+            return QString::fromLocal8Bit(pw->pw_dir) + QStringLiteral("/OsirisCS2");
+    }
+    // run.sh passes the invoking user's HOME through pkexec explicitly - trust it when it
+    // is not root's own home.
+    const QByteArray home = qgetenv("HOME");
+    if (!home.isEmpty() && home != QByteArrayLiteral("/root") && QDir(home).exists())
+        return QString::fromLocal8Bit(home) + QStringLiteral("/OsirisCS2");
+    if (cs2Pid > 0) {
+        struct stat st {};
+        if (::stat(QStringLiteral("/proc/%1").arg(cs2Pid).toUtf8().constData(), &st) == 0) {
+            if (passwd *pw = ::getpwuid(st.st_uid))
+                return QString::fromLocal8Bit(pw->pw_dir) + QStringLiteral("/OsirisCS2");
+        }
+    }
+    return QStringLiteral("/tmp");
+}
+
+QString unloadRequestPath(qint64 cs2Pid = 0)
+{
+    return moduleExchangeRoot(cs2Pid) + QStringLiteral("/ns_unload_request");
+}
+
+// Diagnostics live under <root>/logs on the home-based root, flat on the /tmp fallback
+// (matches the module's ns_paths::joinLog layout).
+QString guiLogPath(qint64 cs2Pid = 0)
+{
+    const QString root = moduleExchangeRoot(cs2Pid);
+    if (root == QStringLiteral("/tmp"))
+        return root + QStringLiteral("/gamesense_gui.log");
+    return root + QStringLiteral("/logs/gamesense_gui.log");
+}
+
+} // namespace
 
 namespace
 {
@@ -39,6 +92,21 @@ Injector::SecureBytes secureShared(QByteArray &&src)
     });
 }
 } // namespace
+
+// Resolves the `find` binary for the build-staleness checks in checkBuild().
+//
+// It must NOT be hardcoded to /usr/bin/find: on NixOS `find` lives in
+// /run/current-system/sw/bin, and a nix-built Loader can run with a store-only PATH.
+// QProcess::start then fails, the done-callback never runs, and BOTH staleness flags
+// stay at their default `false` - so the Loader reports "Modules up to date" for a tree
+// that is actually stale and never offers the rebuild. Resolve through PATH; the
+// hardcoded path survives only as a last resort so a failed lookup is visible in the
+// log rather than silently empty.
+static QString findExecutable()
+{
+    const QString resolved = QStandardPaths::findExecutable(QStringLiteral("find"));
+    return resolved.isEmpty() ? QStringLiteral("/usr/bin/find") : resolved;
+}
 
 Injector::Injector(QObject *parent)
     : QObject(parent)
@@ -334,7 +402,7 @@ void Injector::checkBuild(const std::function<void(const BuildState &)> &done)
             done(m_state);
             return;
         }
-    run(QStringLiteral("/usr/bin/find"),
+    run(findExecutable(),
         {m_root + QStringLiteral("/cs2/Source"), QStringLiteral("-type"), QStringLiteral("f"),
          QStringLiteral("-newer"), osirisLib(false), QStringLiteral("-print"), QStringLiteral("-quit")},
             [this, done](int, const QString &out) {
@@ -348,7 +416,7 @@ void Injector::checkBuild(const std::function<void(const BuildState &)> &done)
         checkInjected();
         return;
     }
-    run(QStringLiteral("/usr/bin/find"),
+    run(findExecutable(),
         {m_root + QStringLiteral("/cs2/Source/SteamModule"), QStringLiteral("-type"), QStringLiteral("f"),
          QStringLiteral("-newer"), steamModule(), QStringLiteral("-print"), QStringLiteral("-quit")},
         [this, checkInjected](int, const QString &out) {
@@ -526,7 +594,7 @@ void Injector::injectCs2(qint64 pid, bool debugBuild)
         }
 
         // STALE-REQUEST CLEANUP (same as the disk path - see below)
-        ::unlink(QStringLiteral("/tmp/ns_unload_request").toLocal8Bit().constData());
+        ::unlink(unloadRequestPath(pid).toLocal8Bit().constData());
 
         QFile maps(QStringLiteral("/proc/%1/maps").arg(pid));
         if (maps.open(QIODevice::ReadOnly)) {
@@ -586,9 +654,11 @@ void Injector::injectCs2(qint64 pid, bool debugBuild)
         return;
     }
 
-    // STALE-REQUEST CLEANUP: a leftover /tmp/ns_unload_request from a failed unload must be
+    // STALE-REQUEST CLEANUP: a leftover ns_unload_request from a failed unload must be
     // wiped before injecting - the fresh module would otherwise consume it on its first frame
     // and instantly self-unload (seen live 2026-09-12: "I can't inject" - injected, unloaded).
+    // The legacy /tmp location is wiped too: a pre-migration module still polls there.
+    ::unlink(unloadRequestPath(pid).toLocal8Bit().constData());
     ::unlink(QStringLiteral("/tmp/ns_unload_request").toLocal8Bit().constData());
 
     QFile maps(QStringLiteral("/proc/%1/maps").arg(pid));
@@ -605,7 +675,7 @@ void Injector::injectCs2(qint64 pid, bool debugBuild)
         }
     }
 
-    run(QStringLiteral("/usr/bin/find"),
+    run(findExecutable(),
         {m_root + QStringLiteral("/cs2/Source"), QStringLiteral("-type"), QStringLiteral("f"),
          QStringLiteral("("), QStringLiteral("-name"), QStringLiteral("*.h"), QStringLiteral("-o"),
          QStringLiteral("-name"), QStringLiteral("*.cpp"), QStringLiteral(")"), QStringLiteral("-newer"),
@@ -682,9 +752,10 @@ void Injector::unloadCs2(qint64 pid)
     // Primary path (2026-09-12): a request FILE. The module's VAC hardening unlinked its
     // link_map node, so the old dlopen(RTLD_NOLOAD)+dlclose gdb dance can no longer reach it
     // (NOLOAD consults the link_map; an unlinked module is invisible to it). The module instead
-    // polls /tmp/ns_unload_request on its present thread and runs its own teardown + deferred
-    // unmap. Wait for the maps to clear, then fall back to the gdb dlclose for pre-unlink builds.
-    const QString requestFile = QStringLiteral("/tmp/ns_unload_request");
+    // polls <exchangeRoot>/ns_unload_request (NsPaths.h) on its present thread and runs its own
+    // teardown + deferred unmap. Wait for the maps to clear, then fall back to the gdb dlclose
+    // for pre-unlink builds.
+    const QString requestFile = unloadRequestPath(pid);
     {
         QFile request(requestFile);
         if (!request.open(QIODeviceBase::WriteOnly | QIODeviceBase::Truncate)) {
@@ -897,7 +968,7 @@ Injector::VacStatus Injector::readVacStatus(const QString &steamRoot)
     VacStatus status;
 
     // 1. in-game anomaly log health (silent = healthy)
-    QFile guiLog(QStringLiteral("/tmp/gamesense_gui.log"));
+    QFile guiLog(guiLogPath());
     status.guiLogExists = guiLog.exists();
     if (status.guiLogExists) {
         QFileInfo info(guiLog);
@@ -1175,7 +1246,7 @@ NS_OBF_FLATTEN void Injector::integrityTick()
         return;
     m_integrityStrikes = 0;
     log(QStringLiteral("[CS] integrity watchdog: MODULE TEXT DRIFT in the target - requesting unload"), Level::Error);
-    QFile request(QStringLiteral("/tmp/ns_unload_request"));
+    QFile request(unloadRequestPath(m_targetPid));
     if (request.open(QIODeviceBase::WriteOnly | QIODeviceBase::Truncate)) {
         request.write("unload\n");
         request.close();
@@ -1272,7 +1343,7 @@ void Injector::injectTf2(qint64 pid)
         }
     }
 
-    run(QStringLiteral("/usr/bin/find"),
+    run(findExecutable(),
         {m_root + QStringLiteral("/tf2/Source"), QStringLiteral("-type"), QStringLiteral("f"),
          QStringLiteral("("), QStringLiteral("-name"), QStringLiteral("*.h"), QStringLiteral("-o"),
          QStringLiteral("-name"), QStringLiteral("*.cpp"), QStringLiteral(")"), QStringLiteral("-newer"),
@@ -1467,7 +1538,7 @@ void Injector::injectAny(qint64 pid, const QString &libPath)
     }
 
     // stale unload request would instantly self-unload a fresh injection (2026-09-12 lesson)
-    ::unlink(QStringLiteral("/tmp/ns_unload_request").toLocal8Bit().constData());
+    ::unlink(unloadRequestPath(pid).toLocal8Bit().constData());
 
     QFile maps(QStringLiteral("/proc/%1/maps").arg(pid));
     if (maps.open(QIODevice::ReadOnly)) {

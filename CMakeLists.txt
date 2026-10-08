@@ -23,8 +23,9 @@ find_package(OpenSSL REQUIRED)
 # Blob sources (the newest builds at loader-build time):
 # CS2 ships the ARKARI-OBFUSCATED artifact (build-obf-test: NEVERSNOOZE_OBFUSCATE+SHIP);
 # the plain GCC build in cs2/build stays the daily dev tree and wins locally on dev machines.
-set(_cs2_so     ${CMAKE_CURRENT_SOURCE_DIR}/../cs2/build-obf-test/Source/libMangoHud.so)
-set(_tf2_so     ${CMAKE_CURRENT_SOURCE_DIR}/../tf2/build/Source/libMangoHud.so)
+# Override for a debug round: cmake -B build -S . -DNS_CS2_MODULE=<abs path to the .so>
+set(NS_CS2_MODULE "${CMAKE_CURRENT_SOURCE_DIR}/../cs2/build-obf-test/Source/libMangoHud.so" CACHE PATH "CS2 module packed into the loader payload")
+set(_tf2_so     "${CMAKE_CURRENT_SOURCE_DIR}/../tf2/build/Source/libMangoHud.so" CACHE PATH "TF2 module packed into the loader payload")
 set(_steam_so   ${CMAKE_CURRENT_SOURCE_DIR}/../cs2/build-steam/Source/libSteamModule.so)
 set(_injector   ${CMAKE_CURRENT_SOURCE_DIR}/../cs2/inject_memfd)
 set(_keydir     "$ENV{HOME}/.config/neversnooze-keys" CACHE PATH "Ed25519 payload-signing key dir")
@@ -73,10 +74,10 @@ function(ns_pack_blob index name source)
 endfunction()
 
 set(NS_BLOB_OBJS "")
-if(EXISTS ${_cs2_so})
-  ns_pack_blob(0 cs2 ${_cs2_so})
+if(EXISTS ${NS_CS2_MODULE})
+  ns_pack_blob(0 cs2 ${NS_CS2_MODULE})
 else()
-  message(WARNING "CS2 module not found at ${_cs2_so} - loader will be built WITHOUT the embedded CS2 payload")
+  message(WARNING "CS2 module not found at ${NS_CS2_MODULE} - loader will be built WITHOUT the embedded CS2 payload")
 endif()
 if(EXISTS ${_tf2_so})
   ns_pack_blob(1 tf2 ${_tf2_so})
