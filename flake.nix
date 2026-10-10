@@ -12,7 +12,8 @@
     # (forbidden in pure eval). The workspace layout is already machine-specific
     # anyway (the CMake tree expects ../cs2 and ../tf2 siblings), so this matches
     # how the project is used.
-    gamesense.url = "path:/home/d/dev/neversnooze/gamesense";
+    # gamesense.url = "/home/[USER]/sneezer/gamesense";
+    gamesense.url = "github:Broshan1337/gamesense";
   };
 
   outputs = {
