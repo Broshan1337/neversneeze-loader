@@ -800,7 +800,7 @@ void MainWindow::startBuildCheck(){
 
 void MainWindow::poll()
 {
-    m_steamPid = Injector::findPid(QStringLiteral("steam"));
+    m_steamPid = Injector::findSteamPid();
     m_cs2Pid = Injector::findPid(QStringLiteral("cs2"));
     m_tf2Pid = Injector::findPid(QStringLiteral("tf_linux64"));
 

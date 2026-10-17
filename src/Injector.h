@@ -34,6 +34,7 @@ public:
     QString projectRoot() const { return m_root; }
 
     static qint64 findPid(const QString &name);
+    static qint64 findSteamPid();
     static bool isRoot();
     static bool mapsContain(qint64 pid, const QString &needle);
     static QStringList missingCs2Modules(qint64 pid);

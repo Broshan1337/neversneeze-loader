@@ -200,6 +200,40 @@ qint64 Injector::findPid(const QString &name)
     return best;
 }
 
+// 2026-10-17, the steamrt64 update: the 64-bit Steam client runs TWO comm=="steam"
+// processes - a thin launcher spawned by steam.sh (1 thread, never loads client libs) and
+// the real client inside pressure-vessel (loads steamclient.so + steamservice.so). The
+// module's hook target steamservice.so only ever exists in the client, so injecting into
+// the launcher leaves it permanently inert (its init runs once, at constructor time) and
+// VAC unfiltered. Pick the process that actually runs the client; while the client is
+// still booting (no steamclient.so anywhere yet) report "not running" - the poll retries.
+qint64 Injector::findSteamPid()
+{
+    const QStringList entries = QDir(QStringLiteral("/proc"))
+                                    .entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    QVector<qint64> pids;
+    for (const QString &entry : entries) {
+        bool ok = false;
+        const qint64 pid = entry.toLongLong(&ok);
+        if (!ok || pid <= 0)
+            continue;
+        QFile comm(QStringLiteral("/proc/%1/comm").arg(pid));
+        if (!comm.open(QIODevice::ReadOnly))
+            continue;
+        if (QString::fromLocal8Bit(comm.readAll()).trimmed() == QStringLiteral("steam"))
+            pids.append(pid);
+    }
+    if (pids.isEmpty())
+        return 0;
+    if (pids.size() == 1)
+        return pids.first();
+    for (const qint64 pid : pids) {
+        if (mapsContain(pid, QStringLiteral("steamclient.so")))
+            return pid;
+    }
+    return 0;
+}
+
 bool Injector::isRoot()
 {
     return geteuid() == 0;
@@ -428,10 +462,10 @@ void Injector::checkBuild(const std::function<void(const BuildState &)> &done)
 
 void Injector::rebuild(const std::function<void(bool ok)> &done)
 {
-    log(QStringLiteral("[Build] Building Steam module (32-bit)..."));
+    log(QStringLiteral("[Build] Building Steam module (64-bit)..."));
     run(QStringLiteral("cmake"),
         {QStringLiteral("--build"), m_root + QStringLiteral("/cs2/build-steam"), QStringLiteral("--target"),
-         QStringLiteral("SteamModule32")},
+         QStringLiteral("SteamModule")},
         [this, done](int code, const QString &) {
             if (code != 0) {
                 log(QStringLiteral("[Build] Steam module build failed"), Level::Error);
@@ -492,7 +526,7 @@ void Injector::injectSteam(qint64 pid)
         const QString module = steamModule();
         if (!QFileInfo::exists(module)) {
             log(QStringLiteral("[Steam] Error: Module not found"), Level::Error);
-            log(QStringLiteral("[Steam] Build it first: cmake --build cs2/build-steam --target SteamModule32"),
+            log(QStringLiteral("[Steam] Build it first: cmake --build cs2/build-steam --target SteamModule"),
                 Level::Warn);
             emit steamFinished(false);
             return;

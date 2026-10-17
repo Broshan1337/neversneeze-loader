@@ -23,7 +23,7 @@ if $want_all || [[ " $* " == *" cs2 "* ]]; then
     build "$ROOT/cs2/build-obf-test" --target Neversnooze
 fi
 if $want_all || [[ " $* " == *" steam "* ]]; then
-    build "$ROOT/cs2/build-steam" --target SteamModule32
+    build "$ROOT/cs2/build-steam" --target SteamModule
 fi
 if $want_all || [[ " $* " == *" tf2 "* ]]; then
     build "$ROOT/tf2/build" --target NeversnoozeTF2
