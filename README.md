@@ -4,6 +4,11 @@ Qt6 GUI loader for the Neversnooze modules (CS2 and TF2). It replaces the old
 `inject.sh` flow: detects which game is running, does the Steam preload step,
 injects the module, and shows a log panel with everything that used to be printed
 to the console.
+<img width="970" height="959" alt="image" src="https://github.com/user-attachments/assets/1bea45a2-ee82-4042-a2c4-e3b9026df859" />
+
+
+<img width="610" height="508" alt="image" src="https://github.com/user-attachments/assets/9ab5a6fa-98e3-4c89-b614-e422e6b14ec3" />
+
 
 ## How it works
 
