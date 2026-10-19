@@ -12,15 +12,15 @@ to the console.
 
 ## How it works
 
-- **Game detection** — finds the running game (CS2 / `tf_linux64`) and picks the
+- **Game detection** - finds the running game (CS2 / `tf_linux64`) and picks the
   matching module.
-- **Steam step** — the loader first asks whether to inject the small Steam module
+- **Steam step** - the loader first asks whether to inject the small Steam module
   into the running Steam process (gdb + dlopen round). This step can be skipped.
-- **Module injection** — the game module is loaded with `memfd_create`: the
+- **Module injection** - the game module is loaded with `memfd_create`: the
   library exists only in RAM (`/proc/<pid>/fd/<n>`), nothing is written to disk.
   There is a gdb-based fallback path if the direct write fails.
-- **Log panel** — every step is timestamped in the UI.
-- **Root** — needs root, same as the old script. `run.sh` re-execs through
+- **Log panel** - every step is timestamped in the UI.
+- **Root** - needs root, same as the old script. `run.sh` re-execs through
   `pkexec` so you get a native password dialog; `Neversnooze.desktop` /
   `neversnooze-loader.desktop` can be copied to the desktop for double-click use.
 
@@ -29,7 +29,7 @@ to the console.
 `tools/payload_packer.cpp` packs the module builds into **encrypted + signed
 payloads** that are embedded into the loader binary:
 
-- On a dev machine with the source tree, a freshly built module always wins —
+- On a dev machine with the source tree, a freshly built module always wins:
   the loader uses the newest local build.
 - Embedded payloads are the fallback for machines without the tree, so friends
   only need the loader binary.
@@ -49,7 +49,7 @@ newest payloads embedded. `run-ship.sh` runs the shipped build.
 The shipped artifact is a VMProtect-processed loader:
 
 1. `cmake -B build-vmp -S .` produces the **stock-clang, unstripped** input
-   binary (never obfuscated — VMP cannot parse obfuscator output, so the two
+   binary (never obfuscated - VMP cannot parse obfuscator output, so the two
    are never combined in one binary).
 2. The `GNU_PROPERTY` program header is dropped and `elf_shift.py` makes room
    for VMP's extra segment.
@@ -60,8 +60,8 @@ The shipped artifact is a VMProtect-processed loader:
 
 - Optional Arkari (LLVM fork) obfuscation for the loader itself
   (`-DNS_LOADER_OBFUSCATE=ON`), with per-function policy via
-  `src/ObfAnnotations.h` — hot paths are never annotated.
-- `src/AntiDebug.h` — basic debugger/analysis checks.
+  `src/ObfAnnotations.h` - hot paths are never annotated.
+- `src/AntiDebug.h` - basic debugger/analysis checks.
 - Identity strings and patterns are kept out of plaintext rodata.
 
 ## Building
@@ -80,12 +80,12 @@ and cross-compiles `ns_inject.exe` with the MinGW toolchain. Run it with `sudo n
 
 Two deviations from `rebuild-ship.sh`:
 
-- The CS2 payload is the plain GCC build — the Arkari/VMProtect ship artifact cannot be
+- The CS2 payload is the plain GCC build - the Arkari/VMProtect ship artifact cannot be
   reproduced inside a build sandbox.
 - The keydir comes from `gamesense#key-material` instead of `~/.config/neversnooze-keys`,
   so a Nix-built loader only accepts modules built from the same key material (that's the
   fail-closed trailer check doing its job). Build keys land in the world-readable Nix
-  store — acceptable for the throwaway per-build keys this flake generates; don't swap in
+  store - acceptable for the throwaway per-build keys this flake generates; don't swap in
   your machine-local keydir.
 
 `proton/` contains the Windows/Proton-side injector sources (cross-compiled
